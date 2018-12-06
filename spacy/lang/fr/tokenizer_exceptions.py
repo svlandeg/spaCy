@@ -10,22 +10,6 @@ from ..char_classes import ALPHA_LOWER
 from ...symbols import ORTH, LEMMA, TAG, NORM, PRON_LEMMA
 
 
-def upper_first_letter(text):
-    if len(text) == 0:
-        return text
-    if len(text) == 1:
-        return text.upper()
-    return text[0].upper() + text[1:]
-
-
-def lower_first_letter(text):
-    if len(text) == 0:
-        return text
-    if len(text) == 1:
-        return text.lower()
-    return text[0].lower() + text[1:]
-
-
 _exc = {
     "J.-C.": [
         {LEMMA: "Jésus", ORTH: "J."},
@@ -60,38 +44,35 @@ for orth in FR_BASE_EXCEPTIONS + ["etc."]:
     _exc[orth] = [{ORTH: orth}]
 
 
-for verb, verb_lemma in [
+for orth, verb_lemma in [
     ("a", "avoir"),
     ("est", "être"),
     ("semble", "sembler"),
     ("indique", "indiquer"),
     ("moque", "moquer"),
     ("passe", "passer")]:
-    for orth in [verb, verb.title()]:
-        for pronoun in ["elle", "il", "on"]:
-            token = "{}-t-{}".format(orth, pronoun)
-            _exc[token] = [
-                {LEMMA: verb_lemma, ORTH: orth, TAG: "VERB"},
-                {LEMMA: "t", ORTH: "-t"},
-                {LEMMA: pronoun, ORTH: "-" + pronoun}]
-
-for verb, verb_lemma in [
-    ("est","être")]:
-    for orth in [verb, verb.title()]:
-        token = "{}-ce".format(orth)
+    for pronoun in ["elle", "il", "on"]:
+        token = "{}-t-{}".format(orth, pronoun)
         _exc[token] = [
             {LEMMA: verb_lemma, ORTH: orth, TAG: "VERB"},
-            {LEMMA: 'ce', ORTH: '-ce'}]
+            {LEMMA: "t", ORTH: "-t"},
+            {LEMMA: pronoun, ORTH: "-" + pronoun}]
+
+for orth, verb_lemma in [
+    ("est", "être")]:
+    token = "{}-ce".format(orth)
+    _exc[token] = [
+        {LEMMA: verb_lemma, ORTH: orth, TAG: "VERB"},
+        {LEMMA: 'ce', ORTH: '-ce'}]
 
 
-for pre, pre_lemma in [
+for orth, pre_lemma in [
     ("qu'", "que"),
     ("n'", "ne")]:
-    for orth in [pre,pre.title()]:
-        _exc['%sest-ce' % orth] = [
-            {LEMMA: pre_lemma, ORTH: orth, TAG: "ADV"},
-            {LEMMA: 'être', ORTH: "est", TAG: "VERB"},
-            {LEMMA: 'ce', ORTH: '-ce'}]
+    _exc['%sest-ce' % orth] = [
+        {LEMMA: pre_lemma, ORTH: orth, TAG: "ADV"},
+        {LEMMA: 'être', ORTH: "est", TAG: "VERB"},
+        {LEMMA: 'ce', ORTH: '-ce'}]
 
 
 _infixes_exc = []
@@ -100,13 +81,11 @@ orig_hyphen = '-'
 
 # loop through the elison and hyphen characters, and try to substitute the ones that weren't used in the original list
 for infix in FR_BASE_EXCEPTIONS:
-    variants_infix = {infix}
+    variants_infix = {infix.lower()}
     for elision_char in [x for x in ELISION if x != orig_elision]:
         variants_infix.update([word.replace(orig_elision, elision_char) for word in variants_infix])
     for hyphen_char in [x for x in ['-', '‐'] if x != orig_hyphen]:
         variants_infix.update([word.replace(orig_hyphen, hyphen_char) for word in variants_infix])
-    # TODO SVL: the upper_first_letter() should be removed as well
-    variants_infix.update([upper_first_letter(word) for word in variants_infix])
     _infixes_exc.extend(variants_infix)
 
 print("size _infixes_exc 3", len(_infixes_exc))
