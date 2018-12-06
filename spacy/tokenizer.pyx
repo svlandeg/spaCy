@@ -373,6 +373,7 @@ cdef class Tokenizer:
         **exclude: Named attributes to prevent from being serialized.
         RETURNS (bytes): The serialized form of the `Tokenizer` object.
         """
+        print("! to bytes")
         serializers = OrderedDict((
             ('vocab', lambda: self.vocab.to_bytes()),
             ('prefix_search', lambda: self.prefix_search.__self__.pattern),
@@ -390,6 +391,7 @@ cdef class Tokenizer:
         **exclude: Named attributes to prevent from being loaded.
         RETURNS (Tokenizer): The `Tokenizer` object.
         """
+        print("! from bytes")
         data = OrderedDict()
         deserializers = OrderedDict((
             ('vocab', lambda b: self.vocab.from_bytes(b)),
@@ -406,8 +408,9 @@ cdef class Tokenizer:
             self.suffix_search = re.compile(data['suffix_search']).search
         if 'infix_finditer' in data:
             self.infix_finditer = re.compile(data['infix_finditer']).finditer
-        if 'token_match' in data:
-            self.token_match = re.compile(data['token_match']).search
+        print("disabled reading token_match from file")
+        # if 'token_match' in data:
+            # self.token_match = re.compile(data['token_match']).search
         for string, substrings in data.get('rules', {}).items():
             self.add_special_case(string, substrings)
         return self
