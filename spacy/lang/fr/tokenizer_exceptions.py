@@ -81,8 +81,6 @@ orig_hyphen = '-'
 
 # loop through the elison and hyphen characters, and try to substitute the ones that weren't used in the original list
 for infix in FR_BASE_EXCEPTIONS:
-    # if infix.lower() not in _infixes_exc:
-        # print('\"' + infix + '\"' + ",")
     variants_infix = {infix.lower()}
     for elision_char in [x for x in ELISION if x != orig_elision]:
         variants_infix.update([word.replace(orig_elision, elision_char) for word in variants_infix])
@@ -125,7 +123,7 @@ _other_hyphens = ''.join([h for h in HYPHENS if h != '-'])
 _regular_exp = [
     '^droits?[{hyphen}]de[{hyphen}]l\'homm[{alpha}]+$'.format(hyphen=HYPHENS, alpha=ALPHA_LOWER),
     '^zig[{hyphen}]zag[{alpha}]*$'.format(hyphen=HYPHENS, alpha=ALPHA_LOWER),
-    '^prud[{elision}]homm[{alpha}]*$'.format(elision=ELISION, alpha=ALPHA_LOWER)]
+    '^prud[{elision}]hom[{alpha}]*$'.format(elision=ELISION, alpha=ALPHA_LOWER)]
 _regular_exp += ["^{prefix}[{hyphen}][{alpha}][{alpha}{elision}{other_hyphen}\-]*$".format(
                  prefix=p, hyphen=HYPHENS, other_hyphen=_other_hyphens,
                  elision=ELISION, alpha=ALPHA_LOWER)
