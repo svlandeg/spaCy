@@ -40,7 +40,7 @@ for exc_data in [
     _exc[exc_data[ORTH]] = [exc_data]
 
 
-for orth in FR_BASE_EXCEPTIONS + ["etc."]:
+for orth in ["etc."]:
     _exc[orth] = [{ORTH: orth}]
 
 
