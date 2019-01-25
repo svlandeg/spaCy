@@ -112,8 +112,10 @@ def fetch_all_treebanks(ud_dir, languages, corpus, best_per_language):
 
 
 def run_single_eval(nlp, loading_time, print_name, text_path, gold_ud, tmp_output_path, out_file, print_header,
-                    check_parse, print_freq_tasks):
+                    check_parse, print_freq_tasks, print_total):
     """" Run an evaluation of a model nlp on a certain specified treebank """
+    d_under_words, d_under_shapes, d_over_words, d_over_shapes = None, None, None, None
+
     with text_path.open(mode='r', encoding='utf-8') as f:
         flat_text = f.read()
 
@@ -160,10 +162,10 @@ def run_single_eval(nlp, loading_time, print_name, text_path, gold_ud, tmp_outpu
             print_header_1.extend([score_name + '_word_under_ex', score_name + '_shape_under_ex',
                                    score_name + '_word_over_ex', score_name + '_shape_over_ex'])
 
-            d_under_words = get_freq_tuples(score.undersegmented, PRINT_TOTAL)
-            d_under_shapes = get_freq_tuples([word_shape(x) for x in score.undersegmented], PRINT_TOTAL)
-            d_over_words = get_freq_tuples(score.oversegmented, PRINT_TOTAL)
-            d_over_shapes = get_freq_tuples([word_shape(x) for x in score.oversegmented], PRINT_TOTAL)
+            d_under_words = get_freq_tuples(score.undersegmented, print_total)
+            d_under_shapes = get_freq_tuples([word_shape(x) for x in score.undersegmented], print_total)
+            d_over_words = get_freq_tuples(score.oversegmented, print_total)
+            d_over_shapes = get_freq_tuples([word_shape(x) for x in score.oversegmented], print_total)
 
             # saving to CSV with ; seperator so blinding ; in the example output
             print_string_1.append(
@@ -180,8 +182,10 @@ def run_single_eval(nlp, loading_time, print_name, text_path, gold_ud, tmp_outpu
         out_file.write(';'.join(map(str, print_header_1)) + '\n')
     out_file.write(';'.join(map(str, print_string_1)) + '\n')
 
+    return d_under_words, d_under_shapes, d_over_words, d_over_shapes
 
-def run_all_evals(models, treebanks, out_file, check_parse, print_freq_tasks):
+
+def run_all_evals(models, treebanks, out_file, check_parse, print_freq_tasks, print_total):
     """" Run an evaluation for each language with its specified models and treebanks """
     print_header = True
 
@@ -204,12 +208,40 @@ def run_all_evals(models, treebanks, out_file, check_parse, print_freq_tasks):
                         print("   Benchmarking", nlp_name)
                         tmp_output_path = text_path.parent / str('tmp_' + nlp_name + '.conllu')
                         run_single_eval(nlp, nlp_loading_time, nlp_name, text_path, gold_ud, tmp_output_path, out_file,
-                                        print_header, check_parse, print_freq_tasks)
+                                        print_header, check_parse, print_freq_tasks, print_total)
                         print_header = False
                     except Exception as e:
                         print("    Ran into trouble: ", str(e))
             except Exception as e:
                 print("   Ran into trouble: ", str(e))
+
+
+def run_pairwise_tokenizer_evals(model_1, model_2, treebank_text_path, out_file):
+    """" Run a pair-wise evaluation of two tokenization models on one specific language and treebank """
+
+    print(" Evaluating on", treebank_text_path)
+
+    gold_path = treebank_text_path.parent / (treebank_text_path.stem + '.conllu')
+    print("  Gold data from ", gold_path)
+
+    with gold_path.open(mode='r', encoding='utf-8') as gold_file:
+        gold_ud = conll17_ud_eval.load_conllu(gold_file)
+
+        nlp_1, nlp_loading_time_1, nlp_name_1 = model_1
+        print("   Benchmarking model 1", nlp_name_1)
+        tmp_output_path_1 = treebank_text_path.parent / str('tmp_' + nlp_name_1 + '.conllu')
+
+        results_1 = run_single_eval(nlp_1, nlp_loading_time_1, nlp_name_1, treebank_text_path, gold_ud,
+                                    tmp_output_path_1, out_file, True, False, ['Tokens'], None)
+
+        nlp_2, nlp_loading_time_2, nlp_name_2 = model_2
+        print("   Benchmarking model 2", nlp_name_2)
+        tmp_output_path_2 = treebank_text_path.parent / str('tmp_' + nlp_name_2 + '.conllu')
+
+        results_2 = run_single_eval(nlp_2, nlp_loading_time_2, nlp_name_2, treebank_text_path, gold_ud,
+                                    tmp_output_path_2, out_file, False, False, ['Tokens'], None)
+
+        return results_1, results_2
 
 
 @plac.annotations(
@@ -280,7 +312,7 @@ def main(out_path, ud_dir, check_parse=False, langs=ALL_LANGUAGES, exclude_train
             models['fr'].append(load_model('fr_core_news_md'))
 
     with out_path.open(mode='w', encoding='utf-8') as out_file:
-        run_all_evals(models, treebanks, out_file, check_parse, print_freq_tasks)
+        run_all_evals(models, treebanks, out_file, check_parse, print_freq_tasks, PRINT_TOTAL)
 
 
 if __name__ == "__main__":

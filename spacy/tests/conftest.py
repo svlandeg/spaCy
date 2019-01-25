@@ -1,6 +1,7 @@
 # coding: utf-8
 from __future__ import unicode_literals
 
+from sofiereg import clean_tokenizer
 import pytest
 from spacy.util import get_lang_class
 
@@ -11,7 +12,8 @@ def pytest_addoption(parser):
 
 @pytest.fixture(scope="module")
 def tokenizer():
-    return get_lang_class("xx").Defaults.create_tokenizer()
+    # return get_lang_class("xx").Defaults.create_tokenizer()
+    return clean_tokenizer.FastTokenizer.custom_tokenizer()
 
 
 @pytest.fixture(scope="session")
