@@ -13,7 +13,7 @@ def pytest_addoption(parser):
 @pytest.fixture(scope="module")
 def tokenizer():
     # return get_lang_class("xx").Defaults.create_tokenizer()
-    return clean_tokenizer.FastTokenizer.custom_tokenizer()
+    return clean_tokenizer.FastTokenizer().custom_tokenizer("xx")
 
 
 @pytest.fixture(scope="session")
