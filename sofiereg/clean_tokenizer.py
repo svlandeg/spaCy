@@ -51,7 +51,8 @@ class FastTokenizer(object):
                          prefix_search=util.compile_prefix_regex(tuple(TOKENIZER_PREFIXES)).search,
                          suffix_search=util.compile_suffix_regex(tuple(TOKENIZER_SUFFIXES)).search,
                          infix_finditer=util.compile_infix_regex(tuple(TOKENIZER_INFIXES)).finditer,
-                         token_match=TOKEN_MATCH)
+                         token_match=TOKEN_MATCH,
+                         rules=BASE_EXCEPTIONS)
 
     def custom_tokenizer_util_v2(self):
         # mimics code in BaseDefaults.create_tokenizer + added BASE_EXCEPTIONS
@@ -86,7 +87,7 @@ class FastTokenizer(object):
 
 
 if __name__ == "__main__":
-    text = u"This is-a [first] sentence...... And this–is another— one. Great! :)"
+    text = u"This 'is-a [first] 💙 sen'tence...... And' this–is another— one. Great! :)"
     treebank_txt_path = spacy.util.ensure_path("C:/Users/Sofie/Documents/data/UD_2_3/ud-treebanks-v2.3/UD_English-EWT/en_ewt-ud-train.txt")
     out_path = spacy.util.ensure_path("C:/Users/Sofie/Documents/test_tokenizer.csv")
     print_output = True

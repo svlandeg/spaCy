@@ -3,6 +3,8 @@ from __future__ import unicode_literals
 
 import regex as re
 
+from sofiereg.regexp import find_unicode, get_char_string
+
 re.DEFAULT_VERSION = re.VERSION1
 merge_char_classes = lambda classes: "[{}]".format("||".join(classes))
 split_chars = lambda char: list(char.strip().split(" "))
@@ -37,21 +39,24 @@ _units = (
     "кг г мг м/с км/ч кПа Па мбар Кб КБ кб Мб МБ мб Гб ГБ гб Тб ТБ тб"
     "كم كم² كم³ م م² م³ سم سم² سم³ مم مم² مم³ كم غرام جرام جم كغ ملغ كوب اكواب"
 )
-_currency = r"\$ £ € ¥ ฿ US\$ C\$ A\$ ₽ ﷼"
+# _currency = r"\$ £ € ¥ ฿ US\$ C\$ A\$ ₽ ﷼"
+_currency = r"$ £ € ¥ ฿ ₽ ﷼"
 
 # These expressions contain various unicode variations, including characters
 # used in Chinese (see #1333, #1340, #1351) – unless there are cross-language
 # conflicts, spaCy's base tokenizer should handle all of those by default
 _punct = (
     # r". … …… , : ; ! ? ¿ ؟ ¡ ( ) [ ] { } < > _ # * & 。 ？ ！ ， 、 ； ： ～ · । ، ؛ ٪"
-    r". , : ; ? ! ¿ ؟ ¡ ( ) [ \] { } < > _ # * & 。 ？ ！ ， 、 ； ： ～ · । ، ؛ ٪"
+    r". … , : ; ? ! ¿ ؟ ¡ ( ) [ \] { } < > _ # * & 。 ？ ！ ， 、 ； ： ～ · । ، ؛ ٪"
 )
-_quotes = r'\' \'\' " ” “ `` ` ‘ ´ ‘‘ ’’ ‚ , „ » « 「 」 『 』 （ ） 〔 〕 【 】 《 》 〈 〉'
-_hyphens = "\- – — ~"
+# _quotes = r'\' \'\' " ” “ `` ` ‘ ´ ‘‘ ’’ ‚ , „ » « 「 」 『 』 （ ） 〔 〕 【 】 《 》 〈 〉'
+_quotes = r'\' " ” “ ` ‘ ´ ‘ ’ ‚ , „ » « 「 」 『 』 （ ） 〔 〕 【 】 《 》 〈 〉'
+_hyphens = "- – — ~ : / \\"
 
 # Various symbols like dingbats, but also emoji
 # Details: https://www.compart.com/en/unicode/category/So
-_other_symbols = r"[\p{So}]"
+# _other_symbols = r"[\p{So}]"
+_other_symbols = get_char_string(find_unicode("So"))
 
 UNITS = merge_chars(_units)
 CURRENCY = merge_chars(_currency)

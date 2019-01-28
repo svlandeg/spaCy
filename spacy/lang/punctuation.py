@@ -7,19 +7,19 @@ from .char_classes import QUOTES, CURRENCY, UNITS
 
 
 _prefixes = (
-    # ["§", "%", "=", r"\+(?![0-9])"]
+    # ["§", "%", "=", "+"]
     LIST_PUNCT
     # + LIST_ELLIPSES
-    # + LIST_QUOTES
-    # + LIST_CURRENCY
+    + LIST_QUOTES
+    + LIST_CURRENCY
 )
 
 
 _suffixes = (
     LIST_PUNCT
     # + LIST_ELLIPSES
-    # + LIST_QUOTES
-    # + LIST_ICONS
+    + LIST_QUOTES
+    + LIST_ICONS
     # + ["'s", "'S", "’s", "’S"]
     # + [
     #    r"(?<=[0-9])\+",
@@ -34,7 +34,8 @@ _suffixes = (
 
 _infixes = (
     LIST_HYPHENS
-    # + LIST_ICONS
+    + LIST_QUOTES
+    + LIST_ICONS
     #+ [
     #    r"(?<=[0-9])[+\-\*^](?=[0-9-])",
     #    r"(?<=[{}])\.(?=[{}])".format(ALPHA_LOWER, ALPHA_UPPER),

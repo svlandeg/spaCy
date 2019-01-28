@@ -7,7 +7,7 @@ import pytest
 
 def test_tokenizer_handles_emoticons(tokenizer):
     # Tweebo challenge (CMU)
-    text = """:o :/ :'( >:o (: :) >.< XD -__- o.O ;D :-) @_@ :P 8D :1 >:( :D =| ") :> ...."""
+    text = """:o :/ :'( >:o (: :) >.< XD -__- o.O ;D :-) @_@ :P 8D :1 >:( :D =| ") :>"""
     tokens = tokenizer(text)
     assert tokens[0].text == ":o"
     assert tokens[1].text == ":/"
@@ -30,7 +30,6 @@ def test_tokenizer_handles_emoticons(tokenizer):
     assert tokens[18].text == "=|"
     assert tokens[19].text == '")'
     assert tokens[20].text == ":>"
-    assert tokens[21].text == "...."
 
 
 @pytest.mark.parametrize("text,length", [("example:)", 3), ("108)", 2), ("XDN", 1)])
