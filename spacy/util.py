@@ -4,7 +4,7 @@ from __future__ import unicode_literals, print_function
 import os
 import pkg_resources
 import importlib
-import regex as re
+import re   # import regex as re
 from pathlib import Path
 import random
 from collections import OrderedDict
@@ -314,24 +314,20 @@ def read_regex(path):
 
 
 def compile_prefix_regex(entries):
-    if "(" in entries:
-        # Handle deprecated data
-        expression = "|".join(
-            ["^" + re.escape(piece) for piece in entries if piece.strip()]
-        )
-        return re.compile(expression)
-    else:
-        expression = "|".join(["^" + piece for piece in entries if piece.strip()])
-        return re.compile(expression)
+    # expression = "|".join(["^" + piece for piece in entries if piece.strip()])
+    expression = "^[" + "".join([piece for piece in entries if piece.strip()]) + "]"
+    return re.compile(expression)
 
 
 def compile_suffix_regex(entries):
-    expression = "|".join([piece + "$" for piece in entries if piece.strip()])
+    # expression = "|".join([piece + "$" for piece in entries if piece.strip()])
+    expression = "[" + "".join([piece for piece in entries if piece.strip()]) + "]$"
     return re.compile(expression)
 
 
 def compile_infix_regex(entries):
-    expression = "|".join([piece for piece in entries if piece.strip()])
+    # expression = "|".join([piece for piece in entries if piece.strip()])
+    expression = "[" + "".join([piece for piece in entries if piece.strip()]) + "]"
     return re.compile(expression)
 
 

@@ -227,19 +227,23 @@ def run_pairwise_tokenizer_evals(model_1, model_2, treebank_text_path, out_file)
     with gold_path.open(mode='r', encoding='utf-8') as gold_file:
         gold_ud = conll17_ud_eval.load_conllu(gold_file)
 
-        nlp_1, nlp_loading_time_1, nlp_name_1 = model_1
-        print("   Benchmarking model 1", nlp_name_1)
-        tmp_output_path_1 = treebank_text_path.parent / str('tmp_' + nlp_name_1 + '.conllu')
+        results_1 = None
+        if model_1:
+            nlp_1, nlp_loading_time_1, nlp_name_1 = model_1
+            print("   Benchmarking model 1", nlp_name_1)
+            tmp_output_path_1 = treebank_text_path.parent / str('tmp_' + nlp_name_1 + '.conllu')
 
-        results_1 = run_single_eval(nlp_1, nlp_loading_time_1, nlp_name_1, treebank_text_path, gold_ud,
-                                    tmp_output_path_1, out_file, True, False, ['Tokens'], None)
+            results_1 = run_single_eval(nlp_1, nlp_loading_time_1, nlp_name_1, treebank_text_path, gold_ud,
+                                        tmp_output_path_1, out_file, True, False, ['Tokens'], None)
 
-        nlp_2, nlp_loading_time_2, nlp_name_2 = model_2
-        print("   Benchmarking model 2", nlp_name_2)
-        tmp_output_path_2 = treebank_text_path.parent / str('tmp_' + nlp_name_2 + '.conllu')
+        results_2 = None
+        if model_2:
+            nlp_2, nlp_loading_time_2, nlp_name_2 = model_2
+            print("   Benchmarking model 2", nlp_name_2)
+            tmp_output_path_2 = treebank_text_path.parent / str('tmp_' + nlp_name_2 + '.conllu')
 
-        results_2 = run_single_eval(nlp_2, nlp_loading_time_2, nlp_name_2, treebank_text_path, gold_ud,
-                                    tmp_output_path_2, out_file, False, False, ['Tokens'], None)
+            results_2 = run_single_eval(nlp_2, nlp_loading_time_2, nlp_name_2, treebank_text_path, gold_ud,
+                                        tmp_output_path_2, out_file, False, False, ['Tokens'], None)
 
         return results_1, results_2
 

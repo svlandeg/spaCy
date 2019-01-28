@@ -43,10 +43,11 @@ _currency = r"\$ £ € ¥ ฿ US\$ C\$ A\$ ₽ ﷼"
 # used in Chinese (see #1333, #1340, #1351) – unless there are cross-language
 # conflicts, spaCy's base tokenizer should handle all of those by default
 _punct = (
-    r"… …… , : ; \! \? ¿ ؟ ¡ \( \) \[ \] \{ \} < > _ # \* & 。 ？ ！ ， 、 ； ： ～ · । ، ؛ ٪"
+    # r". … …… , : ; ! ? ¿ ؟ ¡ ( ) [ ] { } < > _ # * & 。 ？ ！ ， 、 ； ： ～ · । ، ؛ ٪"
+    r". , : ; ? ! ¿ ؟ ¡ ( ) [ \] { } < > _ # * & 。 ？ ！ ， 、 ； ： ～ · । ، ؛ ٪"
 )
 _quotes = r'\' \'\' " ” “ `` ` ‘ ´ ‘‘ ’’ ‚ , „ » « 「 」 『 』 （ ） 〔 〕 【 】 《 》 〈 〉'
-_hyphens = "- – — -- --- —— ~"
+_hyphens = "\- – — ~"
 
 # Various symbols like dingbats, but also emoji
 # Details: https://www.compart.com/en/unicode/category/So
