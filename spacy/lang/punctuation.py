@@ -3,12 +3,11 @@ from __future__ import unicode_literals
 
 from .char_classes import LIST_PUNCT, LIST_ELLIPSES, LIST_QUOTES, LIST_CURRENCY, LIST_HYPHENS
 from .char_classes import LIST_ICONS, ALPHA_LOWER, ALPHA_UPPER, ALPHA, HYPHENS
-from .char_classes import QUOTES, CURRENCY, UNITS
 
 
 _prefixes = (
-    # ["§", "%", "=", "+"]
-    LIST_PUNCT
+    ["§", "%", "=", "+"]
+    + LIST_PUNCT
     # + LIST_ELLIPSES
     + LIST_QUOTES
     + LIST_CURRENCY
@@ -22,12 +21,12 @@ _suffixes = (
     + LIST_ICONS
     # + ["'s", "'S", "’s", "’S"]
     # + [
-    #    r"(?<=[0-9])\+",
-                    #    r"(?<=°[FfCcKk])\.",
-                    #    r"(?<=[0-9])(?:{})".format(CURRENCY),
-                    #r"(?<=[0-9])(?:{})".format(UNITS),
-                    #r"(?<=[0-9{}{}(?:{})])\.".format(ALPHA_LOWER, r"%²\-\)\]\+", QUOTES),
-        #r"(?<=[{a}][{a}])\.".format(a=ALPHA_UPPER),
+    #                       r"  (?<=[0-9])   \+      " ,
+                    #       r"  (?<=°[FfCcKk]) \.",
+                    #       r"  (?<=[0-9])  (?:{})" .format(CURRENCY),
+                    #       r"  (?<=[0-9])  (?:{})" .format(UNITS),
+                    #       r"  (?<=[0-9 {} {}  (?:{})  ])  \.".format(ALPHA_LOWER, r"%²\-\)\]\+", QUOTES),
+                    #       r"  (?<=[{a}][{a}]) \." .format(a=ALPHA_UPPER),
         #]
 )
 
