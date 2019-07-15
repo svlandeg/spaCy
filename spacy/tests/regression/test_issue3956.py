@@ -5,7 +5,7 @@ import spacy
 
 
 def test_issue3956():
-    nlp = spacy.load("en_core_web_lg")
+    nlp = spacy.load("en_core_web_sm")
 
     sentences = [
         "Fruits, for example bananas, oranges and peaches.",
