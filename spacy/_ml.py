@@ -2,6 +2,10 @@
 from __future__ import unicode_literals
 
 import numpy
+from thinc.neural._classes.multiheaded_attention import (
+    MultiHeadedAttention,
+    prepare_self_attention,
+)
 from thinc.v2v import Model, Maxout, Softmax, Affine, ReLu
 from thinc.i2v import HashEmbed, StaticVectors
 from thinc.t2t import ExtractWindow, ParametricAttention
@@ -9,7 +13,7 @@ from thinc.t2v import Pooling, sum_pool, mean_pool
 from thinc.misc import Residual
 from thinc.misc import LayerNorm as LN
 from thinc.misc import FeatureExtracter
-from thinc.api import add, layerize, chain, clone, concatenate, with_flatten
+from thinc.api import add, layerize, chain, clone, concatenate, with_flatten, foreach
 from thinc.api import with_getitem, flatten_add_lengths
 from thinc.api import uniqued, wrap, noop
 from thinc.api import with_square_sequences
@@ -662,6 +666,46 @@ def build_simple_cnn_text_classifier(tok2vec, nr_class, exclusive_classes=False,
     return model
 
 
+@layerize
+def my_flatten_add_lengths(seqs, pad=0, drop=0.0):
+    ops = Model.ops
+    print("seqs", seqs.shape)
+    lengths = ops.asarray([len(seq) for seq in seqs], dtype="i")
+    print("lengths", lengths)
+
+    def finish_update(d_X, sgd=None):
+        return ops.unflatten(d_X, lengths, pad=pad)
+
+    X = ops.flatten(seqs, pad=pad)
+    print("X", X.shape)
+    return (X, lengths), finish_update
+
+
+@layerize
+def add_lengths(seqs, pad=0, drop=0.0):
+    ops = Model.ops
+    print("seqs", seqs)
+    lengths = ops.asarray([len(seq) for seq in seqs], dtype="i")
+    print("lengths", lengths)
+
+    def finish_update(d_X, sgd=None):
+        return d_X
+
+    return (seqs, lengths), finish_update
+
+@layerize
+def my_printer(inputs, drop=0.):
+    print("inputs", len(inputs))
+    for inp in inputs:
+        print(" input", inp)
+        print(" input[0]", inp[0])
+        print(" len input[0]", inp[0].shape)
+    def print_gradient(d_inputs, sgd=None):
+        print("d_inputs", len(d_inputs))
+        return d_inputs
+    return inputs, print_gradient
+
+
 def build_nel_encoder(embed_width, hidden_width, ner_types, **cfg):
     if "entity_width" not in cfg:
         raise ValueError(Errors.E144.format(param="entity_width"))
@@ -676,10 +720,19 @@ def build_nel_encoder(embed_width, hidden_width, ner_types, **cfg):
 
     with Model.define_operators({">>": chain, "**": clone}):
         model = (
-            Affine(entity_width, entity_width + context_width + 1 + ner_types)
-            >> Affine(1, entity_width, drop_factor=0.0)
+            flatten_add_lengths
+            >> my_printer
+            >> ParametricAttention(hidden_width)
+            >> Pooling(sum_pool)
+            >> Residual(zero_init(Maxout(hidden_width, hidden_width)))
+            >> zero_init(Affine(1, hidden_width, drop_factor=0.0))
             >> logistic
         )
+        # model = (
+        #        Affine(1, entity_width + context_width + 1 + ner_types, drop_factor=0.0)
+        #        # >> Affine(1, entity_width)
+        #        >> logistic
+        #)
 
         # context encoder
         tok2vec = (
@@ -692,17 +745,15 @@ def build_nel_encoder(embed_width, hidden_width, ner_types, **cfg):
                 conv_depth=conv_depth,
                 bilstm_depth=0,
             )
-            >> flatten_add_lengths
-            >> Pooling(mean_pool)
-            >> Residual(zero_init(Maxout(hidden_width, hidden_width)))
-            >> zero_init(Affine(context_width, hidden_width))
+            # >> flatten_add_lengths
+            # >> Pooling(mean_pool)
+            # >> Residual(zero_init(Maxout(hidden_width, hidden_width)))
+            # >> zero_init(Affine(context_width, hidden_width))
         )
 
         model.tok2vec = tok2vec
-
-    model.tok2vec = tok2vec
-    model.tok2vec.nO = context_width
-    model.nO = 1
+        model.tok2vec.nO = context_width
+        model.nO = 1
     return model
 
 

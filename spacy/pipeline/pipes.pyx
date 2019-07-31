@@ -1099,12 +1099,14 @@ class EntityLinker(Pipe):
         model = build_nel_encoder(embed_width=embed_width, hidden_width=hidden_width, ner_types=len(type_to_int), **cfg)
         return model
 
-    def __init__(self, vocab, **cfg):
+    def __init__(self, vocab, make_doc, **cfg):
         self.vocab = vocab
         self.model = True
         self.kb = None
+        self.make_doc = make_doc
         self.cfg = dict(cfg)
         self.sgd_context = None
+        self.sgd_model = None
         if not self.cfg.get("context_width"):
             self.cfg["context_width"] = 128
 
@@ -1128,6 +1130,7 @@ class EntityLinker(Pipe):
         if self.model is True:
             self.model = self.Model(**self.cfg)
             self.sgd_context = self.create_optimizer()
+            self.sgd_model = self.create_optimizer()
 
         if sgd is None:
             sgd = self.create_optimizer()
@@ -1153,10 +1156,13 @@ class EntityLinker(Pipe):
             golds = [golds]
 
         context_docs = []
-        entity_encodings = []
+        entity_docs = []
+        # entity_encodings = []
 
         priors = []
         type_vectors = []
+
+        desc_dict = {"Q7381115": "publisher.", "Q2146908": "American golfer"}
 
         type_to_int = self.cfg.get("type_to_int", dict())
 
@@ -1167,8 +1173,9 @@ class EntityLinker(Pipe):
             for entity, kb_dict in gold.links.items():
                 start, end = entity
                 mention = doc.text[start:end]
+
                 for kb_id, value in kb_dict.items():
-                    entity_encoding = self.kb.get_vector(kb_id)
+                    # entity_encoding = self.kb.get_vector(kb_id)
                     prior_prob = self.kb.get_prior_prob(kb_id, mention)
 
                     # by default, create a meaningless type vector
@@ -1181,31 +1188,56 @@ class EntityLinker(Pipe):
                             type_vector[type_to_int[gold_ent.label_]] = 1
 
                     # store data
-                    entity_encodings.append(entity_encoding)
+                    entity_doc = self.make_doc(desc_dict[kb_id])
+                    entity_docs.append(entity_doc)
+                    # entity_encodings.append(entity_encoding)
                     context_docs.append(doc)
                     type_vectors.append(type_vector)
 
-                    if self.cfg.get("incl_prior", True):
-                        priors.append([prior_prob])
-                    else:
-                        priors.append([0])
+                    # if self.cfg.get("incl_prior", True):
+                        # priors.append([prior_prob])
+                    # else:
+                    priors.append([0])
 
-        if len(entity_encodings) > 0:
-            if not (len(priors) == len(entity_encodings) == len(context_docs) == len(type_vectors)):
+        if len(entity_docs) > 0:
+            if not (len(priors) == len(entity_docs) == len(context_docs) == len(type_vectors)):
                 raise RuntimeError(Errors.E147.format(method="update", msg="vector lengths not equal"))
 
-            entity_encodings = self.model.ops.asarray(entity_encodings, dtype="float32")
-
+            # TODO: entity_width should now be equal to context width
+            entity_encodings, bp_entity = self.model.tok2vec.begin_update(entity_docs, drop=drop)
             context_encodings, bp_context = self.model.tok2vec.begin_update(context_docs, drop=drop)
-            mention_encodings = [list(context_encodings[i]) + list(entity_encodings[i]) + priors[i] + type_vectors[i]
-                                 for i in range(len(entity_encodings))]
-            pred, bp_mention = self.model.begin_update(self.model.ops.asarray(mention_encodings, dtype="float32"), drop=drop)
+
+            mention_encodings = []
+            print("mention_encodings")
+            for i in range(len(entity_encodings)):
+                result = list(context_encodings[i]) + list(entity_encodings[i])
+                mention_encodings.append(self.model.ops.asarray(result, dtype="float32"))
+
+            #mention_encodings = [list(context_encodings[i]) + list(entity_encodings[i]) + priors[i] + type_vectors[i]
+                                 #for i in range(len(entity_encodings))]
+
+            mention_encodings_2 = self.model.ops.asarray(mention_encodings, dtype="float32")
+
+            # print("mention_encodings", mention_encodings)
+            pred, bp_mention = self.model.begin_update(mention_encodings_2, drop=drop)
+            print("pred", pred)
 
             loss, d_scores = self.get_loss(scores=pred, golds=golds, docs=docs)
-            mention_gradient = bp_mention(d_scores, sgd=sgd)
+            print("loss", loss)
+            print("d_scores", d_scores)
+            mention_gradient = bp_mention(d_scores, sgd=self.sgd_model)
+            # print("mention_gradient", mention_gradient)
 
-            context_gradients = [list(x[0:self.cfg.get("context_width")]) for x in mention_gradient]
+            context_width = self.cfg.get("context_width")
+            context_width = len(context_encodings[0])
+            context_gradients = [list(x[0:context_width]) for x in mention_gradient]
+            # print("context_gradients", context_gradients)
             bp_context(self.model.ops.asarray(context_gradients, dtype="float32"), sgd=self.sgd_context)
+
+            entity_width = self.cfg.get("entity_width")
+            entity_width = len(entity_encodings[0])
+            entity_gradients = [list(x[context_width:(context_width + entity_width)]) for x in mention_gradient]
+            bp_entity(self.model.ops.asarray(entity_gradients, dtype="float32"), sgd=self.sgd_context)
 
             if losses is not None:
                 losses[self.name] += loss
@@ -1219,6 +1251,7 @@ class EntityLinker(Pipe):
                 for kb_id, value in kb_dict.items():
                     cats.append([value])
 
+        print("cats", cats)
         cats = self.model.ops.asarray(cats, dtype="float32")
         if len(scores) != len(cats):
             raise RuntimeError(Errors.E147.format(method="get_loss", msg="gold entities do not match up"))
@@ -1295,6 +1328,9 @@ class EntityLinker(Pipe):
 
                         # TODO: thresholding
                         best_index = scores.argmax()
+                        print("ent", ent)
+                        print("candidates", [c.entity_ for c in candidates])
+                        print("scores", scores)
                         best_candidate = candidates[best_index]
                         final_kb_ids.append(best_candidate.entity_)
                         final_tensors.append(context_encoding)

@@ -32,12 +32,12 @@ def sample_train_data():
     # Q2146908 (Russ Cochran): American golfer
     # Q7381115 (Russ Cochran): publisher
 
-    text_1 = "Russ Cochran's reprints include The Complete EC Library."
+    text_1 = "Russ Cochran his reprints include The Complete EC Library la die da."
     dict_1 = {(0, 12): {"Q7381115": 1.0, "Q2146908": 0.0}}
     train_data.append((text_1, {"links": dict_1}))
 
-    text_2 = "Russ Cochran has been publishing comic art."
-    dict_2 = {(0, 12): {"Q7381115": 1.0, "Q2146908": 0.0}}
+    text_2 = "Russ Cochran has been publishing comic art la die da die da."
+    dict_2 = {(0, 12): {"Q2146908": 0.0, "Q7381115": 1.0}}
     train_data.append((text_2, {"links": dict_2}))
 
     text_3 = "Russ Cochran captured his first major title with his son as caddie."
@@ -61,7 +61,7 @@ TRAIN_DATA = sample_train_data()
     output_dir=("Optional output directory", "option", "o", Path),
     n_iter=("Number of training iterations", "option", "n", int),
 )
-def main(nlp_path=None, kb_path=None, output_dir=None, n_iter=2000):
+def main(nlp_path=None, kb_path=None, output_dir=None, n_iter=20):
     """Load the model, set up the pipeline and train the entity linker."""
     nlp = spacy.load(nlp_path)
     vocab = nlp.vocab
@@ -69,7 +69,7 @@ def main(nlp_path=None, kb_path=None, output_dir=None, n_iter=2000):
     # create the built-in pipeline components and add them to the pipeline
     # nlp.create_pipe works for built-ins that are registered with spaCy
     if "entity_linker" not in nlp.pipe_names:
-        entity_linker = nlp.create_pipe("entity_linker")
+        entity_linker = nlp.create_pipe("entity_linker", config={"context_width": 64})
         kb = KnowledgeBase(vocab=vocab)
         kb.load_bulk(kb_path)
         print("Loaded Knowledge Base")
@@ -101,12 +101,28 @@ def main(nlp_path=None, kb_path=None, output_dir=None, n_iter=2000):
         # reset and initialize the weights randomly
         optimizer = nlp.begin_training()
         for itn in range(n_iter):
-            random.shuffle(TRAIN_DATA)
+            # random.shuffle(TRAIN_DATA)
+
+            # also shuffle links in gold
+            # for text, annotation in TRAIN_DATA:
+            #    for offset, kb_id_dict in annotation["links"].items():
+            #        new_dict = {}
+            #        new_kb_ids = list(kb_id_dict.keys())
+            #        random.shuffle(new_kb_ids)
+            #        for key in new_kb_ids:
+            #            new_dict[key] = kb_id_dict[key]
+
+            #        annotation["links"][offset] = new_dict
+
             losses = {}
             # batch up the examples using spaCy's minibatch
-            batches = minibatch(TRAIN_DATA, size=compounding(4.0, 32.0, 1.001))
+            batches = minibatch(TRAIN_DATA, size=4)
+            batchnr = 0
             for batch in batches:
                 texts, annotations = zip(*batch)
+                print()
+                print("texts", texts)
+                print("annotations", [g["links"] for g in annotations])
                 nlp.update(
                     texts,  # batch of texts
                     annotations,  # batch of annotations
@@ -114,6 +130,9 @@ def main(nlp_path=None, kb_path=None, output_dir=None, n_iter=2000):
                     losses=losses,
                     sgd=optimizer
                 )
+                batchnr += 1
+                print()
+            losses["entity_linker"] = losses["entity_linker"] / batchnr
             print("Losses", losses)
 
     # test the trained model
