@@ -329,6 +329,9 @@ def read_training(nlp, training_dir, dev, limit, kb=None):
     ents_by_offset = dict()
     skip_articles = set()
     total_entities = 0
+    wp_entity_offsets = list()
+    wp_aliases = list()
+    wp_ids = list()
 
     with entityfile_loc.open("r", encoding="utf8") as file:
         for line in file:
@@ -345,6 +348,24 @@ def read_training(nlp, training_dir, dev, limit, kb=None):
                     and article_id != "article_id"
                     and article_id not in skip_articles
                 ):
+                    if current_doc and current_article_id != article_id:
+                        # process the previous article first
+                        article_data = _process_one_article(
+                            kb,
+                            current_article_id,
+                            ents_by_offset,
+                            wp_entity_offsets,
+                            wp_aliases,
+                            wp_ids,
+                        )
+                        total_entities += len(article_data)
+                        data.extend(article_data)
+                        if len(data) % 2500 == 0:
+                            print(" -read", total_entities, "entities")
+
+                        wp_entity_offsets = list()
+                        wp_aliases = list()
+                        wp_ids = list()
                     if not current_doc or (current_article_id != article_id):
                         # parse the new article text
                         file_name = article_id + ".txt"
@@ -357,6 +378,7 @@ def read_training(nlp, training_dir, dev, limit, kb=None):
                                     current_doc = nlp(text)
                                     current_article_id = article_id
                                     ents_by_offset = dict()
+
                                     for ent in current_doc.ents:
                                         sent_length = len(ent.sent)
                                         # custom filtering to avoid too long or too short sentences
@@ -376,54 +398,85 @@ def read_training(nlp, training_dir, dev, limit, kb=None):
                     if current_doc and (current_article_id == article_id):
                         offset = "{}_{}".format(start, end)
                         found_ent = ents_by_offset.get(offset, None)
-                        if found_ent:
-                            if found_ent.text != alias:
-                                skip_articles.add(article_id)
-                                current_doc = None
-                            else:
-                                sent = found_ent.sent.as_doc()
+                        wp_entity_offsets.append(offset)
+                        wp_aliases.append(alias)
+                        wp_ids.append(wd_id)
 
-                                gold_start = int(start) - found_ent.sent.start_char
-                                gold_end = int(end) - found_ent.sent.start_char
-
-                                gold_entities = {}
-                                found_useful = False
-                                for ent in sent.ents:
-                                    entry = (ent.start_char, ent.end_char)
-                                    gold_entry = (gold_start, gold_end)
-                                    if entry == gold_entry:
-                                        # add both pos and neg examples (in random order)
-                                        # this will exclude examples not in the KB
-                                        if kb:
-                                            value_by_id = {}
-                                            candidates = kb.get_candidates(alias)
-                                            candidate_ids = [
-                                                c.entity_ for c in candidates
-                                            ]
-                                            random.shuffle(candidate_ids)
-                                            for kb_id in candidate_ids:
-                                                found_useful = True
-                                                if kb_id != wd_id:
-                                                    value_by_id[kb_id] = 0.0
-                                                else:
-                                                    value_by_id[kb_id] = 1.0
-                                            gold_entities[entry] = value_by_id
-                                        # if no KB, keep all positive examples
-                                        else:
-                                            found_useful = True
-                                            value_by_id = {wd_id: 1.0}
-
-                                            gold_entities[entry] = value_by_id
-                                    # currently feeding the gold data one entity per sentence at a time
-                                    # setting all other entities to empty gold dictionary
-                                    else:
-                                        gold_entities[entry] = {}
-                                if found_useful:
-                                    gold = GoldParse(doc=sent, links=gold_entities)
-                                    data.append((sent, gold))
-                                    total_entities += 1
-                                    if len(data) % 2500 == 0:
-                                        print(" -read", total_entities, "entities")
-
+    # finish processing the last doc
+    if current_doc:
+        # process the previous article first
+        article_data = _process_one_article(
+            kb,
+            current_article_id,
+            ents_by_offset,
+            wp_entity_offsets,
+            wp_aliases,
+            wp_ids,
+        )
+        total_entities += len(article_data)
+        data.extend(article_data)
     print(" -read", total_entities, "entities")
     return data
+
+
+def _process_one_article(
+    kb, article_id, spacy_ents_by_offset, wp_entity_offsets, wp_aliases, wp_ids
+):
+    sent_by_start = dict()
+    data_by_sent = dict()
+    for offset, alias, wd_id in zip(wp_entity_offsets, wp_aliases, wp_ids):
+        start, end = offset.split("_")
+        found_ent = spacy_ents_by_offset.get(offset, None)
+        if found_ent:
+            if found_ent.text == alias:
+                sent_start = found_ent.sent.start_char
+
+                sent_doc = sent_by_start.get(sent_start, None)
+                if not sent_doc:
+                    sent_doc = found_ent.sent.as_doc()
+                    sent_by_start[sent_start] = sent_doc
+
+                gold_start = int(start) - sent_start
+                gold_end = int(end) - sent_start
+
+                gold_entities = {}
+                found_useful = False
+                for ent in sent_doc.ents:
+                    entry = (ent.start_char, ent.end_char)
+                    gold_entry = (gold_start, gold_end)
+                    if entry == gold_entry:
+                        # add both pos and neg examples (in random order)
+                        # this will exclude examples not in the KB
+                        if kb:
+                            value_by_id = {}
+                            candidates = kb.get_candidates(alias)
+                            candidate_ids = [c.entity_ for c in candidates]
+                            random.shuffle(candidate_ids)
+                            for kb_id in candidate_ids:
+                                found_useful = True
+                                if kb_id != wd_id:
+                                    value_by_id[kb_id] = 0.0
+                                else:
+                                    value_by_id[kb_id] = 1.0
+                            gold_entities[entry] = value_by_id
+                        # if no KB, keep all positive examples
+                        else:
+                            found_useful = True
+                            value_by_id = {wd_id: 1.0}
+
+                            gold_entities[entry] = value_by_id
+                    # currently feeding the gold data one entity per sentence at a time
+                    # setting all other entities to empty gold dictionary
+                    # else:
+                    # gold_entities[entry] = {}
+                if found_useful:
+                    gold = data_by_sent.get(sent_doc, None)
+                    if not gold:
+                        gold = GoldParse(doc=sent_doc, links={})
+                    gold.links.update(gold_entities)
+                    data_by_sent[sent_doc] = gold
+
+    article_data = []
+    for sent_doc, gold in data_by_sent.items():
+        article_data.append((sent_doc, gold))
+    return article_data
