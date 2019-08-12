@@ -315,7 +315,7 @@ def is_dev(article_id):
     return article_id.endswith("3")
 
 
-def read_training(nlp, training_dir, dev, limit, kb=None):
+def read_training(nlp, training_dir, dev, limit, kb=None, coref=False):
     """ This method provides training examples that correspond to the entity annotations found by the nlp object.
      When kb is provided (for training), it will include negative training examples by using the candidate generator,
      and it will only keep positive training examples that can be found in the KB.
@@ -326,7 +326,6 @@ def read_training(nlp, training_dir, dev, limit, kb=None):
     # assume the data is written sequentially, so we can reuse the article docs
     current_article_id = None
     current_doc = None
-    ents_by_offset = dict()
     skip_articles = set()
     total_entities = 0
     wp_entity_offsets = list()
@@ -352,11 +351,11 @@ def read_training(nlp, training_dir, dev, limit, kb=None):
                         # process the previous article first
                         article_data = _process_one_article(
                             kb,
-                            current_article_id,
-                            ents_by_offset,
+                            current_doc,
                             wp_entity_offsets,
                             wp_aliases,
                             wp_ids,
+                            coref
                         )
                         total_entities += len(article_data)
                         data.extend(article_data)
@@ -377,16 +376,6 @@ def read_training(nlp, training_dir, dev, limit, kb=None):
                                 if len(text) < 30000:
                                     current_doc = nlp(text)
                                     current_article_id = article_id
-                                    ents_by_offset = dict()
-
-                                    for ent in current_doc.ents:
-                                        sent_length = len(ent.sent)
-                                        # custom filtering to avoid too long or too short sentences
-                                        if 5 < sent_length < 100:
-                                            offset = "{}_{}".format(
-                                                ent.start_char, ent.end_char
-                                            )
-                                            ents_by_offset[offset] = ent
                                 else:
                                     skip_articles.add(article_id)
                                     current_doc = None
@@ -397,7 +386,6 @@ def read_training(nlp, training_dir, dev, limit, kb=None):
                     # repeat checking this condition in case an exception was thrown
                     if current_doc and (current_article_id == article_id):
                         offset = "{}_{}".format(start, end)
-                        found_ent = ents_by_offset.get(offset, None)
                         wp_entity_offsets.append(offset)
                         wp_aliases.append(alias)
                         wp_ids.append(wd_id)
@@ -407,11 +395,11 @@ def read_training(nlp, training_dir, dev, limit, kb=None):
         # process the previous article first
         article_data = _process_one_article(
             kb,
-            current_article_id,
-            ents_by_offset,
+            current_doc,
             wp_entity_offsets,
             wp_aliases,
             wp_ids,
+            coref
         )
         total_entities += len(article_data)
         data.extend(article_data)
@@ -420,13 +408,23 @@ def read_training(nlp, training_dir, dev, limit, kb=None):
 
 
 def _process_one_article(
-    kb, article_id, spacy_ents_by_offset, wp_entity_offsets, wp_aliases, wp_ids
-):
+    kb, article_doc, wp_entity_offsets, wp_aliases, wp_ids, coref):
+    ents_by_offset = dict()
+
+    for ent in article_doc.ents:
+        sent_length = len(ent.sent)
+        # custom filtering to avoid too long or too short sentences
+        if 5 < sent_length < 100:
+            offset = "{}_{}".format(
+                ent.start_char, ent.end_char
+            )
+            ents_by_offset[offset] = ent
+
     sent_by_start = dict()
     data_by_sent = dict()
     for offset, alias, wd_id in zip(wp_entity_offsets, wp_aliases, wp_ids):
         start, end = offset.split("_")
-        found_ent = spacy_ents_by_offset.get(offset, None)
+        found_ent = ents_by_offset.get(offset, None)
         if found_ent:
             if found_ent.text == alias:
                 sent_start = found_ent.sent.start_char
