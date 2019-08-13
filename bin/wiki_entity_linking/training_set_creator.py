@@ -319,7 +319,8 @@ def read_training(nlp, training_dir, dev, limit, kb=None, coref=False):
     """ This method provides training examples that correspond to the entity annotations found by the nlp object.
      When kb is provided (for training), it will include negative training examples by using the candidate generator,
      and it will only keep positive training examples that can be found in the KB.
-     When kb=None (for testing), it will include all positive examples only."""
+     When kb=None (for testing), it will include all positive examples only.
+     If coref=True, additional entities parsed from coreference resolution, will be added to the training set."""
     entityfile_loc = training_dir / ENTITY_FILE
     data = []
 
@@ -355,7 +356,7 @@ def read_training(nlp, training_dir, dev, limit, kb=None, coref=False):
                             wp_entity_offsets,
                             wp_aliases,
                             wp_ids,
-                            coref
+                            coref,
                         )
                         total_entities += len(article_data)
                         data.extend(article_data)
@@ -394,12 +395,7 @@ def read_training(nlp, training_dir, dev, limit, kb=None, coref=False):
     if current_doc:
         # process the previous article first
         article_data = _process_one_article(
-            kb,
-            current_doc,
-            wp_entity_offsets,
-            wp_aliases,
-            wp_ids,
-            coref
+            kb, current_doc, wp_entity_offsets, wp_aliases, wp_ids, coref
         )
         total_entities += len(article_data)
         data.extend(article_data)
@@ -407,17 +403,18 @@ def read_training(nlp, training_dir, dev, limit, kb=None, coref=False):
     return data
 
 
-def _process_one_article(
-    kb, article_doc, wp_entity_offsets, wp_aliases, wp_ids, coref):
-    ents_by_offset = dict()
+def _process_one_article(kb, article_doc, wp_entity_offsets, wp_aliases, wp_ids, coref):
+    if coref:
+        wp_entity_offsets, wp_aliases, wp_ids = _add_from_coref(
+            article_doc, wp_entity_offsets, wp_aliases, wp_ids
+        )
 
+    ents_by_offset = dict()
     for ent in article_doc.ents:
         sent_length = len(ent.sent)
         # custom filtering to avoid too long or too short sentences
         if 5 < sent_length < 100:
-            offset = "{}_{}".format(
-                ent.start_char, ent.end_char
-            )
+            offset = "{}_{}".format(ent.start_char, ent.end_char)
             ents_by_offset[offset] = ent
 
     sent_by_start = dict()
@@ -478,3 +475,25 @@ def _process_one_article(
     for sent_doc, gold in data_by_sent.items():
         article_data.append((sent_doc, gold))
     return article_data
+
+
+def _add_from_coref(article_doc, wp_entity_offsets, wp_aliases, wp_ids):
+    for ent in article_doc.ents:
+        offset = "{}_{}".format(ent.start_char, ent.end_char)
+        try:
+            wp_index = wp_entity_offsets.index(offset)
+        except ValueError:
+            wp_index = -1
+        if wp_index >= 0:
+            wp_id = wp_ids[wp_index]
+            if ent._.is_coref:
+                for coref_ent in ent._.coref_cluster:
+                    if ent.start_char != coref_ent.start_char:
+                        coref_offset = "{}_{}".format(
+                            coref_ent.start_char, coref_ent.end_char
+                        )
+                        wp_entity_offsets.append(coref_offset)
+                        wp_aliases.append(coref_ent.text)
+                        wp_ids.append(wp_id)
+
+    return wp_entity_offsets, wp_aliases, wp_ids
