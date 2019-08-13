@@ -350,7 +350,7 @@ def read_training(nlp, training_dir, dev, limit, kb=None, coref=False):
                 ):
                     if current_doc and current_article_id != article_id:
                         # process the previous article first
-                        article_data = _process_one_article(
+                        article_data = _process_per_article(
                             kb,
                             current_doc,
                             wp_entity_offsets,
@@ -394,7 +394,7 @@ def read_training(nlp, training_dir, dev, limit, kb=None, coref=False):
     # finish processing the last doc
     if current_doc:
         # process the previous article first
-        article_data = _process_one_article(
+        article_data = _process_per_article(
             kb, current_doc, wp_entity_offsets, wp_aliases, wp_ids, coref
         )
         total_entities += len(article_data)
@@ -403,7 +403,50 @@ def read_training(nlp, training_dir, dev, limit, kb=None, coref=False):
     return data
 
 
-def _process_one_article(kb, article_doc, wp_entity_offsets, wp_aliases, wp_ids, coref):
+def _process_per_article(kb, article_doc, wp_entity_offsets, wp_aliases, wp_ids, coref):
+    if coref:
+        wp_entity_offsets, wp_aliases, wp_ids = _add_from_coref(
+            article_doc, wp_entity_offsets, wp_aliases, wp_ids
+        )
+
+    ents_by_offset = dict()
+    for ent in article_doc.ents:
+        offset = "{}_{}".format(ent.start_char, ent.end_char)
+        ents_by_offset[offset] = ent
+
+    gold_entities = {}
+
+    for offset, alias, wd_id in zip(wp_entity_offsets, wp_aliases, wp_ids):
+        start, end = offset.split("_")
+        found_ent = ents_by_offset.get(offset, None)
+        if found_ent:
+            if found_ent.text == alias:
+                for ent in article_doc.ents:
+                    entry = (ent.start_char, ent.end_char)
+                    gold_entry = (int(start), int(end))
+                    if entry == gold_entry:
+                        # add both pos and neg examples (in random order)
+                        # this will exclude examples not in the KB
+                        if kb:
+                            value_by_id = {}
+                            candidates = kb.get_candidates(alias)
+                            candidate_ids = [c.entity_ for c in candidates]
+                            random.shuffle(candidate_ids)
+                            for kb_id in candidate_ids:
+                                if kb_id != wd_id:
+                                    value_by_id[kb_id] = 0.0
+                                else:
+                                    value_by_id[kb_id] = 1.0
+                            if value_by_id:
+                                gold_entities[entry] = value_by_id
+                        # if no KB, keep all positive examples
+                        else:
+                            gold_entities[entry] = {wd_id: 1.0}
+
+    gold = GoldParse(doc=article_doc, links=gold_entities)
+    return [(article_doc, gold)]
+
+def _process_per_sentence(kb, article_doc, wp_entity_offsets, wp_aliases, wp_ids, coref):
     if coref:
         wp_entity_offsets, wp_aliases, wp_ids = _add_from_coref(
             article_doc, wp_entity_offsets, wp_aliases, wp_ids
