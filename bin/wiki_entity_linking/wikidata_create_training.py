@@ -27,7 +27,12 @@ def now():
     dir_kb=("Directory with KB, NLP and related files", "positional", None, Path),
     loc_training=("Directory to hold training data", "positional", None, Path),
     wp_xml=("Path to the downloaded Wikipedia XML dump.", "positional", None, Path),
-    coref=("Whether or not to include coref to the dataset (default False)", "flag", "c", bool),
+    coref=(
+        "Whether or not to include coref to the dataset (default False)",
+        "flag",
+        "c",
+        bool,
+    ),
     limit=("Optional threshold to limit lines read from WP dump", "option", "l", int),
 )
 def main(dir_kb, loc_training, wp_xml, coref=False, limit=None):
@@ -45,9 +50,6 @@ def main(dir_kb, loc_training, wp_xml, coref=False, limit=None):
     nlp_dir = dir_kb / "nlp"
     print(now(), "STEP 1: loading model from", nlp_dir)
     nlp = spacy.load(nlp_dir)
-    if coref:
-        neuralcoref.add_to_pipe(nlp)
-        print(" - added neuralcoref pipe")
 
     # check that there is a NER component in the pipeline
     if "ner" not in nlp.pipe_names:
@@ -71,22 +73,34 @@ def main(dir_kb, loc_training, wp_xml, coref=False, limit=None):
         limit=limit,
     )
 
-    # STEP 4: parse the training data
+    # STEP 4: add coreference annotations to the training dataset
     print()
-    print(now(), "STEP 4: parse the training & evaluation data")
+    print(now(), "STEP 4: adding coreference annotations to", loc_training)
+    if coref:
+        print(" - adding neuralcoref pipe")
+        neuralcoref.add_to_pipe(nlp)
+        training_set_creator.add_coreference_to_dataset(
+            nlp=nlp, training_dir=loc_training
+        )
+    else:
+        print(" - coref=False, skipping this step.")
+
+    # STEP 5: parse the training data
+    print()
+    print(now(), "STEP 5: parse the training & evaluation data")
 
     # for training, get pos & neg instances that correspond to entries in the kb
     print("Parsing training data")
-
     train_data = training_set_creator.read_training(
-        nlp=nlp, training_dir=loc_training, dev=False, limit=None, kb=kb, coref=coref
+        nlp=nlp, training_dir=loc_training, dev=False, limit=None, kb=kb
     )
 
-    print("Read", len(train_data), "training instances")
+    print("Read", len(train_data), "training articles ")
+    nr_entities = 0
     for doc, gold in train_data:
-        print()
-        for key, value in gold.links.items():
-            print("link", key, '-->', value)
+        nr_entities += len(gold.links.items())
+    print("Read", nr_entities, "training entities")
+
     print()
     print(now(), "Done")
 
