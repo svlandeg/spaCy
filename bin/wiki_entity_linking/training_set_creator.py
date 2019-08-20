@@ -25,9 +25,10 @@ def _get_entity_filename(article_id, coref):
     return article_id + "_gold.csv"
 
 
-def create_training(wikipedia_input, entity_def_input, training_output, limit=None):
+def create_training(wp_input, entity_def_input, training_output, limit=None):
+    """ Create training for all Wikipedia articles, or a subset by defining `limit`"""
     wp_to_id = kb_creator.get_entity_to_id(entity_def_input)
-    _process_wikipedia_texts(wikipedia_input, wp_to_id, training_output, limit=limit)
+    _process_wikipedia_texts(wp_input, wp_to_id, training_output, limit=limit)
 
 
 def _process_wikipedia_texts(wikipedia_input, wp_to_id, training_output, limit=None):
@@ -39,18 +40,18 @@ def _process_wikipedia_texts(wikipedia_input, wp_to_id, training_output, limit=N
     id_regex = re.compile(r"(?<=<id>)\d*(?=</id>)")
 
     read_ids = set()
+    article_cnt = 0
 
     with bz2.open(wikipedia_input, mode="rb") as file:
         line = file.readline()
-        cnt = 0
         article_text = ""
         article_title = None
         article_id = None
         reading_text = False
         reading_revision = False
-        while line and (not limit or cnt < limit):
-            if cnt % 1000000 == 0:
-                print(now(), "processed", cnt, "lines of Wikipedia dump")
+        while line and (not limit or article_cnt < limit):
+            if article_cnt > 0 and article_cnt % 5000 == 0:
+                print(now(), "processed", article_cnt, "Wikipedia articles")
             clean_line = line.strip().decode("utf-8")
 
             if clean_line == "<revision>":
@@ -68,13 +69,15 @@ def _process_wikipedia_texts(wikipedia_input, wp_to_id, training_output, limit=N
             elif clean_line == "</page>":
                 if article_id:
                     try:
-                        _process_wp_text(
+                        result = _process_wp_text(
                             wp_to_id,
                             article_id,
                             article_title,
                             article_text.strip(),
                             training_output,
                         )
+                        if result:
+                            article_cnt += 1
                     except Exception as e:
                         print("Error processing article", article_id, article_title, e)
                 else:
@@ -117,8 +120,8 @@ def _process_wikipedia_texts(wikipedia_input, wp_to_id, training_output, limit=N
                     article_title = titles[0].strip()
 
             line = file.readline()
-            cnt += 1
-        print(now(), "processed", cnt, "lines of Wikipedia dump")
+
+    print(now(), "processed", article_cnt, "Wikipedia articles")
 
 
 text_regex = re.compile(r"(?<=<text xml:space=\"preserve\">).*(?=</text)")
@@ -131,14 +134,14 @@ def _process_wp_text(
 
     # ignore meta Wikipedia pages
     if article_title.startswith("Wikipedia:"):
-        return
+        return 0
 
     # remove the text tags
     text = text_regex.search(article_text).group(0)
 
     # stop processing if this is a redirect page
     if text.startswith("#REDIRECT"):
-        return
+        return 0
 
     # get the raw text without markup etc, keeping only interwiki links
     clean_text = _get_clean_wp_text(text)
@@ -240,6 +243,10 @@ def _process_wp_text(
             clean_text=final_text,
             training_output=training_output,
         )
+        return 1
+    else:
+        entityfile_loc.unlink()  # removing empty files
+    return 0
 
 
 info_regex = re.compile(r"{[^{]*?}")
@@ -491,72 +498,95 @@ def _process_per_sentence(kb, article_doc, wp_entity_offsets, wp_aliases, wp_ids
     return article_data
 
 
-def add_coreference_to_dataset(nlp, training_dir):
+def add_coreference_to_dataset(nlp, training_dir, parallelize=False):
     """
     Add coreference annotations to the gold dataset. For this functionality to work,
     make sure the nlp component has a neuralcoref pipeline component !
     """
-    for textfile in training_dir.iterdir():
-        if textfile.name.endswith(".txt"):
-            article_id = textfile.name.split(".")[0]
-            with textfile.open("r", encoding="utf8") as f:
-                current_doc = None
-                try:
-                    text = f.read()
-                    current_doc = nlp(text)
-                except Exception as e:
-                    print("Problem parsing article", article_id, e)
+    if parallelize:
+        from dask import delayed
+        from dask import compute
 
-            if current_doc:
-                wp_entity_offsets = list()
-                wp_aliases = list()
-                wp_ids = list()
-
-                entityfile_in_name = _get_entity_filename(article_id, coref=False)
-                entityfile_in_loc = training_dir / entityfile_in_name
-                with entityfile_in_loc.open("r", encoding="utf8") as entityfile_in:
-                    for line in entityfile_in:
-                        fields = line.replace("\n", "").split(sep="|")
-                        article_id = fields[0]
-                        alias = fields[1]
-                        wd_id = fields[2]
-                        start = fields[3]
-                        end = fields[4]
-
-                        if article_id != "article_id":
-                            offset = "{}_{}".format(start, end)
-                            wp_entity_offsets.append(offset)
-                            wp_aliases.append(alias)
-                            wp_ids.append(wd_id)
-
-                wp_entity_offsets, wp_aliases, wp_ids = _add_from_coref(
-                    current_doc, wp_entity_offsets, wp_aliases, wp_ids
+        list_written = list()
+        for textfile in training_dir.iterdir():
+            if textfile.name.endswith(".txt"):
+                list_written.append(
+                    delayed(_add_coreference_to_article)(nlp, training_dir, textfile)
                 )
 
-                entityfile_out_name = _get_entity_filename(article_id, coref=True)
-                entityfile_out_loc = training_dir / entityfile_out_name
-                with entityfile_out_loc.open("w", encoding="utf8") as entityfile_out:
-                    _write_training_entity(
-                        outputfile=entityfile_out,
-                        article_id="article_id",
-                        alias="alias",
-                        entity="WD_id",
-                        start="start",
-                        end="end",
-                    )
+        total_written = compute(sum(list_written))
+        print("Written", total_written, "coref statements")
+    else:
+        total_written = 0
+        for textfile in training_dir.iterdir():
+            if textfile.name.endswith(".txt"):
+                total_written += _add_coreference_to_article(
+                    nlp, training_dir, textfile
+                )
+        print("Written", total_written, "coref statements")
 
-                    for offset, alias, wp_id in zip(
-                        wp_entity_offsets, wp_aliases, wp_ids
-                    ):
-                        start, end = offset.split("_")
-                        _write_training_entity(
-                            outputfile=entityfile_out,
-                            article_id=article_id,
-                            alias=alias,
-                            entity=wp_id,
-                            start=start,
-                            end=end,
-                        )
+
+def _add_coreference_to_article(nlp, training_dir, textfile):
+    article_id = textfile.name.split(".")[0]
+    written = 0
+    with textfile.open("r", encoding="utf8") as f:
+        current_doc = None
+        try:
+            text = f.read()
+            current_doc = nlp(text)
+        except Exception as e:
+            print("Problem parsing article", article_id, e)
+
+    if current_doc:
+        wp_entity_offsets = list()
+        wp_aliases = list()
+        wp_ids = list()
+
+        entityfile_in_name = _get_entity_filename(article_id, coref=False)
+        entityfile_in_loc = training_dir / entityfile_in_name
+        with entityfile_in_loc.open("r", encoding="utf8") as entityfile_in:
+            for line in entityfile_in:
+                fields = line.replace("\n", "").split(sep="|")
+                article_id = fields[0]
+                alias = fields[1]
+                wd_id = fields[2]
+                start = fields[3]
+                end = fields[4]
+
+                if article_id != "article_id":
+                    offset = "{}_{}".format(start, end)
+                    wp_entity_offsets.append(offset)
+                    wp_aliases.append(alias)
+                    wp_ids.append(wd_id)
+
+        wp_entity_offsets, wp_aliases, wp_ids = _add_from_coref(
+            current_doc, wp_entity_offsets, wp_aliases, wp_ids
+        )
+
+        entityfile_out_name = _get_entity_filename(article_id, coref=True)
+        entityfile_out_loc = training_dir / entityfile_out_name
+        with entityfile_out_loc.open("w", encoding="utf8") as entityfile_out:
+            _write_training_entity(
+                outputfile=entityfile_out,
+                article_id="article_id",
+                alias="alias",
+                entity="WD_id",
+                start="start",
+                end="end",
+            )
+
+            for offset, alias, wp_id in zip(wp_entity_offsets, wp_aliases, wp_ids):
+                start, end = offset.split("_")
+                _write_training_entity(
+                    outputfile=entityfile_out,
+                    article_id=article_id,
+                    alias=alias,
+                    entity=wp_id,
+                    start=start,
+                    end=end,
+                )
+                written += 1
+    return written
 
 
 def _add_from_coref(article_doc, wp_entity_offsets, wp_aliases, wp_ids):

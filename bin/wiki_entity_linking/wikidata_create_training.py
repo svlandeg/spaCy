@@ -13,7 +13,6 @@ import plac
 import neuralcoref  # installed from source with pip install -e .
 
 import spacy
-from spacy.kb import KnowledgeBase
 from spacy import Errors
 
 from bin.wiki_entity_linking import training_set_creator
@@ -26,80 +25,66 @@ def now():
 @plac.annotations(
     dir_kb=("Directory with KB, NLP and related files", "positional", None, Path),
     loc_training=("Directory to hold training data", "positional", None, Path),
-    wp_xml=("Path to the downloaded Wikipedia XML dump.", "positional", None, Path),
-    coref=(
-        "Whether or not to include coref to the dataset (default False)",
-        "flag",
-        "c",
-        bool,
-    ),
-    limit=("Optional threshold to limit lines read from WP dump", "option", "l", int),
+    wp_xml=("Path to the downloaded Wikipedia XML dump.", "option", "w", Path),
+    skip_raw=("Whether to skip the raw parsing (default False)", "flag", "s", bool),
+    coref=("Whether to include coref or not (default False)", "flag", "c", bool),
+    parallelize=("Use dask to parallellize work (default False)", "flag", "d", bool),
+    limit=("Optionally limit the # of articles read from WP dump", "option", "l", int),
 )
-def main(dir_kb, loc_training, wp_xml, coref=False, limit=None):
+def main(
+    dir_kb,
+    loc_training,
+    wp_xml,
+    skip_raw=False,
+    coref=False,
+    parallelize=False,
+    limit=None,
+):
     print(now(), "Creating training data from Wikipedia")
     print()
 
     if limit is not None:
-        print("Warning: reading only", limit, "lines of Wikipedia dump.")
+        print("Warning: reading only", limit, "Wikipedia articles.")
 
     # STEP 0: set up IO
     if not loc_training.exists():
         loc_training.mkdir()
 
-    # STEP 1 : load the NLP object
-    nlp_dir = dir_kb / "nlp"
-    print(now(), "STEP 1: loading model from", nlp_dir)
-    nlp = spacy.load(nlp_dir)
-
-    # check that there is a NER component in the pipeline
-    if "ner" not in nlp.pipe_names:
-        raise ValueError(Errors.E152)
-
-    # STEP 2 : read the KB
+    # STEP 1: create a training dataset from WP
     print()
-    print(now(), "STEP 2: reading the KB from", dir_kb / "kb")
-    kb = KnowledgeBase(vocab=nlp.vocab)
-    kb.load_bulk(dir_kb / "kb")
+    print(now(), "STEP 1: creating training dataset at", loc_training)
 
-    # STEP 3: create a training dataset from WP
+    if skip_raw:
+        print(" - skip_raw=True, skipping this step")
+    else:
+        loc_entity_defs = dir_kb / "entity_defs.csv"
+        training_set_creator.create_training(
+            wp_input=wp_xml,
+            entity_def_input=loc_entity_defs,
+            training_output=loc_training,
+            limit=limit,
+        )
+
+    # STEP 2: add coreference annotations to the training dataset
     print()
-    print(now(), "STEP 3: creating training dataset at", loc_training)
-
-    loc_entity_defs = dir_kb / "entity_defs.csv"
-    training_set_creator.create_training(
-        wikipedia_input=wp_xml,
-        entity_def_input=loc_entity_defs,
-        training_output=loc_training,
-        limit=limit,
-    )
-
-    # STEP 4: add coreference annotations to the training dataset
-    print()
-    print(now(), "STEP 4: adding coreference annotations to", loc_training)
+    print(now(), "STEP 2: adding coreference annotations to", loc_training)
     if coref:
+        nlp_dir = dir_kb / "nlp"
+        print(" - loading model from", nlp_dir)
+        nlp = spacy.load(nlp_dir)
+
+        # check that there is a NER component in the pipeline
+        if "ner" not in nlp.pipe_names:
+            raise ValueError(Errors.E152)
+
         print(" - adding neuralcoref pipe")
+        print(" - parallelization with dask:", parallelize)
         neuralcoref.add_to_pipe(nlp)
         training_set_creator.add_coreference_to_dataset(
-            nlp=nlp, training_dir=loc_training
+            nlp=nlp, training_dir=loc_training, parallelize=parallelize
         )
     else:
-        print(" - coref=False, skipping this step.")
-
-    # STEP 5: parse the training data
-    print()
-    print(now(), "STEP 5: parse the training & evaluation data")
-
-    # for training, get pos & neg instances that correspond to entries in the kb
-    print("Parsing training data")
-    train_data = training_set_creator.read_training(
-        nlp=nlp, training_dir=loc_training, dev=False, limit=None, kb=kb
-    )
-
-    print("Read", len(train_data), "training articles ")
-    nr_entities = 0
-    for doc, gold in train_data:
-        nr_entities += len(gold.links.items())
-    print("Read", nr_entities, "training entities")
+        print(" - coref=False, skipping this step")
 
     print()
     print(now(), "Done")
