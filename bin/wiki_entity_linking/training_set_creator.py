@@ -54,8 +54,6 @@ def _process_wikipedia_texts(wikipedia_input, wp_to_id, training_output, limit=N
         reading_text = False
         reading_revision = False
         while line and (not limit or article_cnt < limit):
-            if article_cnt > 0 and article_cnt % 5000 == 0:
-                print(now(), "processed", article_cnt, "Wikipedia articles")
             clean_line = line.strip().decode("utf-8")
 
             if clean_line == "<revision>":
@@ -82,6 +80,8 @@ def _process_wikipedia_texts(wikipedia_input, wp_to_id, training_output, limit=N
                         )
                         if result:
                             article_cnt += 1
+                            if article_cnt > 0 and article_cnt % 5000 == 0:
+                                print(now(), "processed", article_cnt, "Wikipedia articles")
                     except Exception as e:
                         print("Error processing article", article_id, article_title, e)
                 else:
@@ -569,7 +569,6 @@ def write_coreference_annotations(nlp, training_dir, parallelize=False):
                     try:
                         text = f.read()
                         doc = nlp(text)
-                        print("parsed", article_id)
                         total_written += _write_coreference_to_article(
                             doc, training_dir, textfile
                         )
