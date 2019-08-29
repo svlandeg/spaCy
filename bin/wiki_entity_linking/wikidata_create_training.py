@@ -78,9 +78,13 @@ def main(
             raise ValueError(Errors.E152)
 
         print(" - adding neuralcoref pipe")
+        neuralcoref.add_to_pipe(nlp, max_dist=20)
+
         print(" - parallelization with dask:", parallelize)
-        neuralcoref.add_to_pipe(nlp)
-        training_set_creator.add_coreference_to_dataset(
+        # training_set_creator.add_coreference_to_dataset(
+        #    nlp=nlp, training_dir=loc_training, parallelize=parallelize
+        # )
+        training_set_creator.write_coreference_annotations(
             nlp=nlp, training_dir=loc_training, parallelize=parallelize
         )
     else:

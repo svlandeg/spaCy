@@ -25,6 +25,10 @@ def _get_entity_filename(article_id, coref):
     return article_id + "_gold.csv"
 
 
+def _get_coref_filename(article_id):
+    return article_id + "_coref.csv"
+
+
 def create_training(wp_input, entity_def_input, training_output, limit=None):
     """ Create training for all Wikipedia articles, or a subset by defining `limit`"""
     wp_to_id = kb_creator.get_entity_to_id(entity_def_input)
@@ -326,6 +330,11 @@ def _write_training_entity(outputfile, article_id, alias, entity, start, end):
     outputfile.write(line)
 
 
+def _write_coref_(outputfile, article_id, coref_id, start, end):
+    line = "{}|{}|{}|{}\n".format(article_id, coref_id, start, end)
+    outputfile.write(line)
+
+
 def is_dev(article_id):
     return article_id.endswith("3")
 
@@ -524,6 +533,84 @@ def add_coreference_to_dataset(nlp, training_dir, parallelize=False):
                     nlp, training_dir, textfile
                 )
         print("Written", total_written, "coref statements")
+
+
+def write_coreference_annotations(nlp, training_dir, parallelize=False):
+    """
+    Write coreference annotations for the textual dataset. For this functionality to work,
+    make sure the nlp component has a neuralcoref pipeline component !
+    """
+    if parallelize:
+        from dask import delayed
+        from dask import compute
+
+        list_written = list()
+        for textfile in training_dir.iterdir():
+            if textfile.name.endswith(".txt"):
+                article_id = textfile.name.split(".")[0]
+                with textfile.open("r", encoding="utf8") as f:
+                    try:
+                        text = f.read()
+                        doc = nlp(text)
+                        list_written.append(
+                            delayed(_write_coreference_to_article)(doc, training_dir, textfile)
+                        )
+                    except Exception as e:
+                        print("Problem parsing article", article_id, e)
+
+        total_written = compute(sum(list_written))
+        print("Written", total_written, "coref statements")
+    else:
+        total_written = 0
+        for textfile in training_dir.iterdir():
+            if textfile.name.endswith(".txt"):
+                with textfile.open("r", encoding="utf8") as f:
+                    article_id = textfile.name.split(".")[0]
+                    try:
+                        text = f.read()
+                        doc = nlp(text)
+                        print("parsed", article_id)
+                        total_written += _write_coreference_to_article(
+                            doc, training_dir, textfile
+                        )
+                    except Exception as e:
+                        print("Problem parsing article", article_id, e)
+
+        print("Written", total_written, "coref clusters")
+
+
+def _write_coreference_to_article(doc, training_dir, textfile):
+    article_id = textfile.name.split(".")[0]
+    written = 0
+
+    coref_name = _get_coref_filename(article_id)
+    coref_out_loc = training_dir / coref_name
+
+    # write heading
+    with coref_out_loc.open("w", encoding="utf8") as coreffile_out:
+        _write_coref_(
+            outputfile=coreffile_out,
+            article_id="article_id",
+            coref_id="coref_id",
+            start="start",
+            end="end",
+        )
+
+        # write each cluster, assigning artificial IDs for ease of parsing
+        c_id = 0
+        for cluster in doc._.coref_clusters:
+            c_id += 1
+            written += 1
+            for mention in cluster.mentions:
+                _write_coref_(
+                    outputfile=coreffile_out,
+                    article_id=article_id,
+                    coref_id=c_id,
+                    start=mention.start,
+                    end=mention.end,
+                )
+
+    return written
 
 
 def _add_coreference_to_article(nlp, training_dir, textfile):
