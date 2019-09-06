@@ -78,6 +78,7 @@ def main(
             raise ValueError(Errors.E152)
 
         print(" - adding neuralcoref pipe")
+        # default max_dist is 50 (small: less accurate & faster)
         neuralcoref.add_to_pipe(nlp, max_dist=20)
 
         print(" - parallelization with dask:", parallelize)
