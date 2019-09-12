@@ -19,7 +19,7 @@ wp_train_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_train_dataset/
 kb_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_KB/")
 nlp_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_EL/nlp/")
 
-dev_limit = 2
+dev_limit = 10
 
 
 def now():
@@ -57,21 +57,21 @@ def eval_wp():
 
     print()
     print(now(), "STEP 5: adjust predictions to follow coref chain")
-    new_data = coref_global_optimum(data_per_sentence, coref_data_by_article, kb, nlp)
+    new_data = coref_global_optimum(data_per_sentence, coref_data_by_article, nlp)
 
     print()
     print(now(), "STEP 6: measuring the baselines and EL performance of NEW dev data")
     measure_performance(new_data, kb, nlp)
 
 
-def coref_global_optimum(data, coref_data_by_article, kb, nl):
+def coref_global_optimum(data, coref_data_by_article, nlp):
     for sentence, gold in data:
+        sent_doc = nlp(sentence.text)
+
         u = sentence.user_data
         article_id = u["orig_article_id"]
         sent_offset = u["sent_offset"]
         coref_doc, coref_in_doc = coref_data_by_article.get(article_id, dict())
-        print("article", article_id, sent_offset, sentence)
-        print("coref clusters in doc:", coref_in_doc)
 
         doc_offset_to_cluster_id = dict()
         for cluster_id, span_list in coref_in_doc.items():
@@ -80,16 +80,27 @@ def coref_global_optimum(data, coref_data_by_article, kb, nl):
 
         for offset, value in gold.links.items():
             start_char, end_char = offset
+            doc_start_char = start_char + sent_offset
+            doc_end_char = end_char + sent_offset
             mention = sentence.text[start_char:end_char]
             mention2 = coref_doc.text[start_char+sent_offset:end_char+sent_offset]
-            doc_offset = (start_char+sent_offset, end_char+sent_offset)
-            print("offset", offset, "-->", "value", value, mention, "==", mention2)
+            doc_offset = (doc_start_char, doc_end_char)
+            print("article/sentence", article_id, sent_offset, "offset", offset, "-->", "value", value, mention, "==", mention2)
+            for ent in sent_doc.ents:
+                if ent.start_char == start_char:
+                    print(" -->", ent, ent.kb_id_)
             cluster_id = doc_offset_to_cluster_id.get(doc_offset, None)
             if cluster_id:
                 print(" coref cluster", coref_in_doc[cluster_id])
                 for coref_span in coref_in_doc[cluster_id]:
-                    print(" coref span", coref_span.start_char, coref_span.end_char, coref_span.sent)
-        print()
+                    if coref_span.start_char != doc_start_char:
+                        print(" coref span", coref_span.start_char, coref_span.end_char)
+                        coref_span_doc = nlp(coref_span.sent.text)
+                        for ent in coref_span_doc.ents:
+                            if ent.start_char == coref_span.start_char - coref_span.sent.start_char:
+                                print(" -->", ent, ent.kb_id_)
+
+            print()
 
     return data
 
