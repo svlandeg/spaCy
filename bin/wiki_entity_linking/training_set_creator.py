@@ -19,9 +19,7 @@ def now():
     return datetime.datetime.now()
 
 
-def _get_entity_filename(article_id, coref):
-    if coref:
-        return article_id + "_coref" + "_gold.csv"
+def _get_entity_filename(article_id):
     return article_id + "_gold.csv"
 
 
@@ -160,7 +158,7 @@ def _process_wp_text(
     entity_buffer = ""
     mention_buffer = ""
 
-    entityfile_name = _get_entity_filename(article_id, False)
+    entityfile_name = _get_entity_filename(article_id)
     entityfile_loc = training_output / entityfile_name
     with entityfile_loc.open("w", encoding="utf8") as entityfile:
         wrote_header = False
@@ -345,6 +343,7 @@ def read_training(nlp, training_dir, dev, limit, kb=None, sentence=False, coref=
      and it will only keep positive training examples that can be found in the KB.
      When kb=None (for testing), it will include all positive examples only."""
     data = []
+    coref_data = dict()
     total_articles = 0
     total_entities = 0
 
@@ -373,7 +372,7 @@ def read_training(nlp, training_dir, dev, limit, kb=None, sentence=False, coref=
                         wp_aliases = list()
                         wp_ids = list()
 
-                        entityfile_name = _get_entity_filename(article_id, coref=coref)
+                        entityfile_name = _get_entity_filename(article_id)
                         entityfile_loc = training_dir / entityfile_name
                         with entityfile_loc.open("r", encoding="utf8") as entityfile:
                             for line in entityfile:
@@ -389,7 +388,6 @@ def read_training(nlp, training_dir, dev, limit, kb=None, sentence=False, coref=
                                     wp_entity_offsets.append(offset)
                                     wp_aliases.append(alias)
                                     wp_ids.append(wd_id)
-
                         if sentence:
                             gold_data = _process_per_sentence(kb, current_doc, wp_entity_offsets, wp_aliases, wp_ids)
                         else:
@@ -399,8 +397,13 @@ def read_training(nlp, training_dir, dev, limit, kb=None, sentence=False, coref=
                         data.extend(gold_data)
                         if len(data) % 2500 == 0:
                             print(" -read", total_entities, "articles")
+                        if coref:
+                            entities_by_coref_id = _read_coreference(training_dir, current_doc)
+                            coref_data[article_id] = (current_doc, entities_by_coref_id)
 
     print(" -read", total_articles, "articles with", total_entities, "entities")
+    if coref:
+        return data, coref_data
     return data
 
 
@@ -466,8 +469,10 @@ def _process_per_sentence(kb, article_doc, wp_entity_offsets, wp_aliases, wp_ids
                 sent_doc = sent_by_start.get(sent_start, None)
                 if not sent_doc:
                     sent_doc = found_ent.sent.as_doc()
-                    sent_doc.user_data = article_doc.user_data
-                    sent_doc.user_data["sent_offset"] = sent_start
+
+                    # don't copy the user_data object, because then sent_offset will be the same across sent_doc's
+                    sent_doc.user_data["orig_article_id"] = article_doc.user_data["orig_article_id"]
+                    sent_doc.user_data["sent_offset"] = int(sent_start)
                     sent_by_start[sent_start] = sent_doc
 
                 gold_start = int(start) - sent_start
@@ -511,37 +516,9 @@ def _process_per_sentence(kb, article_doc, wp_entity_offsets, wp_aliases, wp_ids
                     data_by_sent[sent_doc] = gold
 
     article_data = []
-    for sent_doc, gold in data_by_sent.items():
-        article_data.append((sent_doc, gold))
+    for s_doc, s_gold in data_by_sent.items():
+        article_data.append((s_doc, s_gold))
     return article_data
-
-
-def add_coreference_to_dataset(nlp, training_dir, parallelize=False):
-    """
-    Add coreference annotations to the gold dataset. For this functionality to work,
-    make sure the nlp component has a neuralcoref pipeline component !
-    """
-    if parallelize:
-        from dask import delayed
-        from dask import compute
-
-        list_written = list()
-        for textfile in training_dir.iterdir():
-            if textfile.name.endswith(".txt"):
-                list_written.append(
-                    delayed(_add_coreference_to_article)(nlp, training_dir, textfile)
-                )
-
-        total_written = compute(sum(list_written))
-        print("Written", total_written, "coref statements")
-    else:
-        total_written = 0
-        for textfile in training_dir.iterdir():
-            if textfile.name.endswith(".txt"):
-                total_written += _add_coreference_to_article(
-                    nlp, training_dir, textfile
-                )
-        print("Written", total_written, "coref statements")
 
 
 def write_coreference_annotations(nlp, training_dir, parallelize=False):
@@ -621,67 +598,24 @@ def _write_coreference_to_article(doc, training_dir, textfile):
     return written
 
 
-def _add_coreference_to_article(nlp, training_dir, textfile):
-    article_id = textfile.name.split(".")[0]
-    written = 0
-    with textfile.open("r", encoding="utf8") as f:
-        current_doc = None
-        try:
-            text = f.read()
-            current_doc = nlp(text)
-        except Exception as e:
-            print("Problem parsing article", article_id, e)
+def _read_coreference(training_dir, article):
+    coref_name = _get_coref_filename(article.user_data["orig_article_id"])
+    coref_out_loc = training_dir / coref_name
+    entities_by_coref_id = dict()
+    with coref_out_loc.open("r", encoding="utf8") as coreffile_in:
+        for line in coreffile_in:
+            fields = line.replace("\n", "").split(sep="|")
+            article_id = fields[0]
+            coref_id = fields[1]
 
-    if current_doc:
-        wp_entity_offsets = list()
-        wp_aliases = list()
-        wp_ids = list()
+            if article_id != "article_id":
+                start = int(fields[2])
+                end = int(fields[3])
 
-        entityfile_in_name = _get_entity_filename(article_id, coref=False)
-        entityfile_in_loc = training_dir / entityfile_in_name
-        with entityfile_in_loc.open("r", encoding="utf8") as entityfile_in:
-            for line in entityfile_in:
-                fields = line.replace("\n", "").split(sep="|")
-                article_id = fields[0]
-                alias = fields[1]
-                wd_id = fields[2]
-                start = fields[3]
-                end = fields[4]
-
-                if article_id != "article_id":
-                    offset = "{}_{}".format(start, end)
-                    wp_entity_offsets.append(offset)
-                    wp_aliases.append(alias)
-                    wp_ids.append(wd_id)
-
-        wp_entity_offsets, wp_aliases, wp_ids = _add_from_coref(
-            current_doc, wp_entity_offsets, wp_aliases, wp_ids
-        )
-
-        entityfile_out_name = _get_entity_filename(article_id, coref=True)
-        entityfile_out_loc = training_dir / entityfile_out_name
-        with entityfile_out_loc.open("w", encoding="utf8") as entityfile_out:
-            _write_training_entity(
-                outputfile=entityfile_out,
-                article_id="article_id",
-                alias="alias",
-                entity="WD_id",
-                start="start",
-                end="end",
-            )
-
-            for offset, alias, wp_id in zip(wp_entity_offsets, wp_aliases, wp_ids):
-                start, end = offset.split("_")
-                _write_training_entity(
-                    outputfile=entityfile_out,
-                    article_id=article_id,
-                    alias=alias,
-                    entity=wp_id,
-                    start=start,
-                    end=end,
-                )
-                written += 1
-    return written
+                coref_list = entities_by_coref_id.get(coref_id, list())
+                coref_list.append(article[start:end])
+                entities_by_coref_id[coref_id] = coref_list
+    return entities_by_coref_id
 
 
 def _add_from_coref(article_doc, wp_entity_offsets, wp_aliases, wp_ids):

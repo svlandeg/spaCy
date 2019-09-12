@@ -1,5 +1,6 @@
 # coding: utf-8
 from __future__ import unicode_literals
+
 """Script that evaluates the influence of coref annotations on the performance
 of an entity linking model.
 """
@@ -39,38 +40,62 @@ def eval_wp():
 
     print()
     print(now(), "STEP 3: reading the training data from", wp_train_dir)
-    dev_wp_data = training_set_creator.read_training(
-        nlp=nlp, training_dir=wp_train_dir, dev=True, limit=dev_limit, kb=None, sentence=True, coref=False
+    data_per_sentence, coref_data_by_article = training_set_creator.read_training(
+        nlp=nlp,
+        training_dir=wp_train_dir,
+        dev=True,
+        limit=dev_limit,
+        kb=None,
+        sentence=True,
+        coref=True,
     )
-    print("Dev testing on", len(dev_wp_data), "articles")
+    print("Dev testing on", len(data_per_sentence), "sentences")
 
     print()
     print(now(), "STEP 4: measuring the baselines and EL performance of dev data")
-    measure_performance(dev_wp_data, kb, nlp)
+    measure_performance(data_per_sentence, kb, nlp)
 
     print()
     print(now(), "STEP 5: adjust predictions to follow coref chain")
-    new_data = coref_global_optimum(dev_wp_data, kb, nlp)
+    new_data = coref_global_optimum(data_per_sentence, coref_data_by_article, kb, nlp)
 
     print()
     print(now(), "STEP 6: measuring the baselines and EL performance of NEW dev data")
     measure_performance(new_data, kb, nlp)
 
 
-def coref_global_optimum(data, kb, nl):
-    for article, gold in data:
-        u = article.user_data
-        print("article", u["orig_article_id"], u["sent_offset"], article)
+def coref_global_optimum(data, coref_data_by_article, kb, nl):
+    for sentence, gold in data:
+        u = sentence.user_data
+        article_id = u["orig_article_id"]
+        sent_offset = u["sent_offset"]
+        coref_doc, coref_in_doc = coref_data_by_article.get(article_id, dict())
+        print("article", article_id, sent_offset, sentence)
+        print("coref clusters in doc:", coref_in_doc)
+
+        doc_offset_to_cluster_id = dict()
+        for cluster_id, span_list in coref_in_doc.items():
+            for entity in span_list:
+                doc_offset_to_cluster_id[(entity.start_char, entity.end_char)] = cluster_id
+
         for offset, value in gold.links.items():
-            print("offset", offset, "-->", "value", value)
+            start_char, end_char = offset
+            mention = sentence.text[start_char:end_char]
+            mention2 = coref_doc.text[start_char+sent_offset:end_char+sent_offset]
+            doc_offset = (start_char+sent_offset, end_char+sent_offset)
+            print("offset", offset, "-->", "value", value, mention, "==", mention2)
+            cluster_id = doc_offset_to_cluster_id.get(doc_offset, None)
+            if cluster_id:
+                print(" coref cluster", coref_in_doc[cluster_id])
+                for coref_span in coref_in_doc[cluster_id]:
+                    print(" coref span", coref_span.start_char, coref_span.end_char, coref_span.sent)
+        print()
 
     return data
 
 
 def measure_performance(data, kb, nlp):
-    counts, acc_r, acc_r_d, acc_p, acc_p_d, acc_o, acc_o_d = measure_baselines(
-        data, kb
-    )
+    counts, acc_r, acc_r_d, acc_p, acc_p_d, acc_o, acc_o_d = measure_baselines(data, kb)
     print("dev counts:", sorted(counts.items(), key=lambda x: x[0]))
 
     oracle_by_label = [(x, round(y, 3)) for x, y in acc_o_d.items()]
@@ -96,6 +121,7 @@ def measure_performance(data, kb, nlp):
     dev_acc_combo, dev_acc_combo_d = measure_acc(data, el_pipe)
     combo_by_label = [(x, round(y, 3)) for x, y in dev_acc_combo_d.items()]
     print("dev accuracy prior+context:", round(dev_acc_combo, 3), combo_by_label)
+
 
 if __name__ == "__main__":
     eval_wp()
