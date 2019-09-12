@@ -1,4 +1,5 @@
 # coding: utf-8
+from __future__ import unicode_literals
 """Script to take a previously created Knowledge Base and train an entity linking
 pipeline. The provided KB directory should hold the kb, the original nlp object and
 its vocab used to create the KB, and a few auxiliary files such as the entity definitions,
@@ -8,7 +9,6 @@ For the Wikipedia dump: get enwiki-latest-pages-articles-multistream.xml.bz2
 from https://dumps.wikimedia.org/enwiki/latest/
 
 """
-from __future__ import unicode_literals
 
 import random
 import datetime
@@ -97,7 +97,7 @@ def main(
 
         loc_entity_defs = dir_kb / "entity_defs.csv"
         training_set_creator.create_training(
-            wikipedia_input=wp_xml,
+            wp_input=wp_xml,
             entity_def_input=loc_entity_defs,
             training_output=loc_training,
             limit=limit,
@@ -168,7 +168,7 @@ def main(
                 if batchnr > 0:
                     el_pipe.cfg["incl_context"] = True
                     el_pipe.cfg["incl_prior"] = True
-                    dev_acc_context, _ = _measure_acc(dev_data, el_pipe)
+                    dev_acc_context, _ = measure_acc(dev_data, el_pipe)
                     losses["entity_linker"] = losses["entity_linker"] / batchnr
                     print(
                         "Epoch, train loss",
@@ -185,7 +185,7 @@ def main(
         print(now(), "STEP 6: performance measurement of Entity Linking pipe")
         print()
 
-        counts, acc_r, acc_r_d, acc_p, acc_p_d, acc_o, acc_o_d = _measure_baselines(
+        counts, acc_r, acc_r_d, acc_p, acc_p_d, acc_o, acc_o_d = measure_baselines(
             dev_data, kb
         )
         print("dev counts:", sorted(counts.items(), key=lambda x: x[0]))
@@ -202,14 +202,14 @@ def main(
         # using only context
         el_pipe.cfg["incl_context"] = True
         el_pipe.cfg["incl_prior"] = False
-        dev_acc_context, dev_acc_cont_d = _measure_acc(dev_data, el_pipe)
+        dev_acc_context, dev_acc_cont_d = measure_acc(dev_data, el_pipe)
         context_by_label = [(x, round(y, 3)) for x, y in dev_acc_cont_d.items()]
         print("dev accuracy context:", round(dev_acc_context, 3), context_by_label)
 
         # measuring combined accuracy (prior + context)
         el_pipe.cfg["incl_context"] = True
         el_pipe.cfg["incl_prior"] = True
-        dev_acc_combo, dev_acc_combo_d = _measure_acc(dev_data, el_pipe)
+        dev_acc_combo, dev_acc_combo_d = measure_acc(dev_data, el_pipe)
         combo_by_label = [(x, round(y, 3)) for x, y in dev_acc_combo_d.items()]
         print("dev accuracy prior+context:", round(dev_acc_combo, 3), combo_by_label)
 
@@ -231,7 +231,7 @@ def main(
     print(now(), "Done!")
 
 
-def _measure_acc(data, el_pipe=None, error_analysis=False):
+def measure_acc(data, el_pipe=None, error_analysis=False):
     # If the docs in the data require further processing with an entity linker, set el_pipe
     correct_by_label = dict()
     incorrect_by_label = dict()
@@ -284,7 +284,7 @@ def _measure_acc(data, el_pipe=None, error_analysis=False):
     return acc, acc_by_label
 
 
-def _measure_baselines(data, kb):
+def measure_baselines(data, kb):
     # Measure 3 performance baselines: random selection, prior probabilities, and 'oracle' prediction for upper bound
     counts_d = dict()
 

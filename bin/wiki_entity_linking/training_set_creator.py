@@ -339,16 +339,17 @@ def is_dev(article_id):
     return article_id.endswith("3")
 
 
-def read_training(nlp, training_dir, dev, limit, kb=None):
+def read_training(nlp, training_dir, dev, limit, kb=None, sentence=False, coref=False):
     """ This method provides training examples that correspond to the entity annotations found by the nlp object.
      When kb is provided (for training), it will include negative training examples by using the candidate generator,
      and it will only keep positive training examples that can be found in the KB.
      When kb=None (for testing), it will include all positive examples only."""
     data = []
+    total_articles = 0
     total_entities = 0
 
     for textfile in training_dir.iterdir():
-        if not limit or len(data) < limit:
+        if not limit or total_articles < limit:
             if textfile.name.endswith(".txt"):
                 article_id = textfile.name.split(".")[0]
                 if dev == is_dev(article_id):
@@ -356,9 +357,12 @@ def read_training(nlp, training_dir, dev, limit, kb=None):
                         current_doc = None
                         try:
                             text = f.read()
-                            other_pipes = [
-                                pipe for pipe in nlp.pipe_names if pipe != "ner"
-                            ]
+                            other_pipes = []
+                            # disable the parser if we don't need the sentence segmentation
+                            if not sentence:
+                                other_pipes = [
+                                    pipe for pipe in nlp.pipe_names if pipe != "ner"
+                                ]
                             current_doc = nlp(text, disable=other_pipes)
                         except Exception as e:
                             print("Problem parsing article", article_id, e)
@@ -368,7 +372,7 @@ def read_training(nlp, training_dir, dev, limit, kb=None):
                         wp_aliases = list()
                         wp_ids = list()
 
-                        entityfile_name = _get_entity_filename(article_id, coref=False)
+                        entityfile_name = _get_entity_filename(article_id, coref=coref)
                         entityfile_loc = training_dir / entityfile_name
                         with entityfile_loc.open("r", encoding="utf8") as entityfile:
                             for line in entityfile:
@@ -385,15 +389,17 @@ def read_training(nlp, training_dir, dev, limit, kb=None):
                                     wp_aliases.append(alias)
                                     wp_ids.append(wd_id)
 
-                        article_data = _read_per_article(
-                            kb, current_doc, wp_entity_offsets, wp_aliases, wp_ids
-                        )
-                        total_entities += len(article_data)
-                        data.extend(article_data)
+                        if sentence:
+                            gold_data = _process_per_sentence(kb, current_doc, wp_entity_offsets, wp_aliases, wp_ids)
+                        else:
+                            gold_data = _read_per_article(kb, current_doc, wp_entity_offsets, wp_aliases, wp_ids)
+                        total_articles += 1
+                        total_entities += len(gold_data)
+                        data.extend(gold_data)
                         if len(data) % 2500 == 0:
                             print(" -read", total_entities, "articles")
 
-    print(" -read", total_entities, "articles")
+    print(" -read", total_articles, "articles with", total_entities, "entities")
     return data
 
 
