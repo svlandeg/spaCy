@@ -364,6 +364,7 @@ def read_training(nlp, training_dir, dev, limit, kb=None, sentence=False, coref=
                                     pipe for pipe in nlp.pipe_names if pipe != "ner"
                                 ]
                             current_doc = nlp(text, disable=other_pipes)
+                            current_doc.user_data["orig_article_id"] = article_id
                         except Exception as e:
                             print("Problem parsing article", article_id, e)
 
@@ -465,6 +466,8 @@ def _process_per_sentence(kb, article_doc, wp_entity_offsets, wp_aliases, wp_ids
                 sent_doc = sent_by_start.get(sent_start, None)
                 if not sent_doc:
                     sent_doc = found_ent.sent.as_doc()
+                    sent_doc.user_data = article_doc.user_data
+                    sent_doc.user_data["sent_offset"] = sent_start
                     sent_by_start[sent_start] = sent_doc
 
                 gold_start = int(start) - sent_start

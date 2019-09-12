@@ -59,9 +59,9 @@ def eval_wp():
 
 def coref_global_optimum(data, kb, nl):
     for article, gold in data:
-        print("article", article)
+        u = article.user_data
+        print("article", u["orig_article_id"], u["sent_offset"], article)
         for offset, value in gold.links.items():
-            # TODO: we need to know the original article ID to get to the coref information
             print("offset", offset, "-->", "value", value)
 
     return data
