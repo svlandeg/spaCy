@@ -14,6 +14,7 @@ import srsly
 from .tokenizer import Tokenizer
 from .vocab import Vocab
 from .lemmatizer import Lemmatizer
+from .lookups import Lookups
 from .pipeline import DependencyParser, Tagger
 from .pipeline import Tensorizer, EntityRecognizer, EntityLinker
 from .pipeline import SimilarityHook, TextCategorizer, Sentencizer
@@ -36,14 +37,23 @@ from . import about
 
 class BaseDefaults(object):
     @classmethod
-    def create_lemmatizer(cls, nlp=None):
-        return Lemmatizer(
-            cls.lemma_index, cls.lemma_exc, cls.lemma_rules, cls.lemma_lookup
-        )
+    def create_lemmatizer(cls, nlp=None, lookups=None):
+        rules, index, exc, lookup = util.get_lemma_tables(lookups)
+        return Lemmatizer(index, exc, rules, lookup)
+
+    @classmethod
+    def create_lookups(cls, nlp=None):
+        root_path = util.get_module_path(cls)
+        lookups = Lookups()
+        for name, filename in cls.resources.items():
+            data = util.load_language_data(root_path / filename)
+            lookups.add_table(name, data)
+        return lookups
 
     @classmethod
     def create_vocab(cls, nlp=None):
-        lemmatizer = cls.create_lemmatizer(nlp)
+        lookups = cls.create_lookups(nlp)
+        lemmatizer = cls.create_lemmatizer(nlp, lookups=lookups)
         lex_attr_getters = dict(cls.lex_attr_getters)
         # This is messy, but it's the minimal working fix to Issue #639.
         lex_attr_getters[IS_STOP] = functools.partial(is_stop, stops=cls.stop_words)
@@ -51,6 +61,7 @@ class BaseDefaults(object):
             lex_attr_getters=lex_attr_getters,
             tag_map=cls.tag_map,
             lemmatizer=lemmatizer,
+            lookups=lookups,
         )
         for tag_str, exc in cls.morph_rules.items():
             for orth_str, attrs in exc.items():
@@ -95,6 +106,7 @@ class BaseDefaults(object):
     morph_rules = {}
     lex_attr_getters = LEX_ATTRS
     syntax_iterators = {}
+    resources = {}
     writing_system = {"direction": "ltr", "has_case": True, "has_letters": True}
 
 
@@ -196,6 +208,7 @@ class Language(object):
             "name": self.vocab.vectors.name,
         }
         self._meta["pipeline"] = self.pipe_names
+        self._meta["labels"] = self.pipe_labels
         return self._meta
 
     @meta.setter
@@ -235,6 +248,18 @@ class Language(object):
         RETURNS (list): List of component name strings, in order.
         """
         return [pipe_name for pipe_name, _ in self.pipeline]
+
+    @property
+    def pipe_labels(self):
+        """Get the labels set by the pipeline components, if available.
+
+        RETURNS (dict): Labels keyed by component name.
+        """
+        labels = OrderedDict()
+        for name, pipe in self.pipeline:
+            if hasattr(pipe, "labels"):
+                labels[name] = list(pipe.labels)
+        return labels
 
     def get_pipe(self, name):
         """Get a pipeline component for a given component name.
@@ -430,6 +455,7 @@ class Language(object):
 
         DOCS: https://spacy.io/api/language#update
         """
+        expected_keys = ("words", "tags", "heads", "deps", "entities", "cats", "links")
         if len(docs) != len(golds):
             raise IndexError(Errors.E009.format(n_docs=len(docs), n_golds=len(golds)))
         if len(docs) == 0:
@@ -445,10 +471,10 @@ class Language(object):
             if isinstance(doc, basestring_):
                 doc = self.make_doc(doc)
             if not isinstance(gold, GoldParse):
-                expected_keys = ("words", "tags", "heads", "deps", "entities", "cats", "links")
-                unexpected_keys = [k for k in gold if k not in expected_keys]
-                if unexpected_keys:
-                    raise ValueError(Errors.E151.format(unexpected_keys=unexpected_keys, expected_keys=expected_keys))
+                unexpected = [k for k in gold if k not in expected_keys]
+                if unexpected:
+                    err = Errors.E151.format(unexp=unexpected, exp=expected_keys)
+                    raise ValueError(err)
                 gold = GoldParse(doc, **gold)
             doc_objs.append(doc)
             gold_objs.append(gold)

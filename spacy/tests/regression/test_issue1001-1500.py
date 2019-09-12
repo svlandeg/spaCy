@@ -13,13 +13,34 @@ from spacy.lemmatizer import Lemmatizer
 from spacy.symbols import ORTH, LEMMA, POS, VERB, VerbForm_part
 
 
+def test_issue1061():
+    """Test special-case works after tokenizing. Was caching problem."""
+    text = "I like _MATH_ even _MATH_ when _MATH_, except when _MATH_ is _MATH_! but not _MATH_."
+    tokenizer = English.Defaults.create_tokenizer()
+    doc = tokenizer(text)
+    assert "MATH" in [w.text for w in doc]
+    assert "_MATH_" not in [w.text for w in doc]
+
+    tokenizer.add_special_case("_MATH_", [{ORTH: "_MATH_"}])
+    doc = tokenizer(text)
+    assert "_MATH_" in [w.text for w in doc]
+    assert "MATH" not in [w.text for w in doc]
+
+    # For sanity, check it works when pipeline is clean.
+    tokenizer = English.Defaults.create_tokenizer()
+    tokenizer.add_special_case("_MATH_", [{ORTH: "_MATH_"}])
+    doc = tokenizer(text)
+    assert "_MATH_" in [w.text for w in doc]
+    assert "MATH" not in [w.text for w in doc]
+
+
 @pytest.mark.xfail(
     reason="g is split of as a unit, as the suffix regular expression can not look back further (variable-width)"
 )
 def test_issue1235():
     """Test that g is not split of if preceded by a number and a letter"""
     nlp = English()
-    testwords = u'e2g 2g 52g'
+    testwords = "e2g 2g 52g"
     doc = nlp(testwords)
     assert len(doc) == 5
     assert doc[0].text == "e2g"

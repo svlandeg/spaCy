@@ -4,7 +4,6 @@ from __future__ import unicode_literals, division, print_function
 import plac
 import os
 from pathlib import Path
-import tqdm
 from thinc.neural._classes.model import Model
 from timeit import default_timer as timer
 import shutil
@@ -101,6 +100,10 @@ def train(
     JSON format. To convert data from other formats, use the `spacy convert`
     command.
     """
+
+    # temp fix to avoid import issues cf https://github.com/explosion/spaCy/issues/4200
+    import tqdm
+
     msg = Printer()
     util.fix_random_seed()
     util.set_env_log(verbose)
@@ -172,16 +175,21 @@ def train(
         nlp.disable_pipes(*other_pipes)
         for pipe in pipeline:
             if pipe not in nlp.pipe_names:
-                nlp.add_pipe(nlp.create_pipe(pipe))
+                if pipe == "parser":
+                    pipe_cfg = {"learn_tokens": learn_tokens}
+                else:
+                    pipe_cfg = {}
+                nlp.add_pipe(nlp.create_pipe(pipe, config=pipe_cfg))
     else:
         msg.text("Starting with blank model '{}'".format(lang))
         lang_cls = util.get_lang_class(lang)
         nlp = lang_cls()
         for pipe in pipeline:
-            nlp.add_pipe(nlp.create_pipe(pipe))
-
-    if learn_tokens:
-        nlp.add_pipe(nlp.create_pipe("merge_subtokens"))
+            if pipe == "parser":
+                pipe_cfg = {"learn_tokens": learn_tokens}
+            else:
+                pipe_cfg = {}
+            nlp.add_pipe(nlp.create_pipe(pipe, config=pipe_cfg))
 
     if vectors:
         msg.text("Loading vector from model '{}'".format(vectors))
@@ -385,6 +393,9 @@ def _score_for_model(meta):
 
 @contextlib.contextmanager
 def _create_progress_bar(total):
+    # temp fix to avoid import issues cf https://github.com/explosion/spaCy/issues/4200
+    import tqdm
+
     if int(os.environ.get("LOG_FRIENDLY", 0)):
         yield
     else:

@@ -1091,6 +1091,62 @@
         },
         {
             "type": "education",
+            "id": "video-intro-to-nlp-episode-1",
+            "title": "Intro to NLP with spaCy",
+            "slogan": "Episode 1: Data exploration",
+            "description": "In this new video series, data science instructor Vincent Warmerdam gets started with spaCy, an open-source library for Natural Language Processing in Python. His mission: building a system to automatically detect programming languages in large volumes of text. Follow his process from the first idea to a prototype all the way to data collection and training a statistical named entity recogntion model from scratch.",
+            "author": "Vincent Warmerdam",
+            "author_links": {
+                "twitter": "fishnets88",
+                "github": "koaning"
+            },
+            "youtube": "WnGPv6HnBok",
+            "category": ["videos"]
+        },
+        {
+            "type": "education",
+            "id": "video-spacy-irl-entity-linking",
+            "title": "Entity Linking functionality in spaCy",
+            "slogan": "spaCy IRL 2019",
+            "url": "https://www.youtube.com/playlist?list=PLBmcuObd5An4UC6jvK_-eSl6jCvP1gwXc",
+            "author": "Sofie Van Landeghem",
+            "author_links": {
+                "twitter": "OxyKodit",
+                "github": "svlandeg"
+            },
+            "youtube": "PW3RJM8tDGo",
+            "category": ["videos"]
+        },
+        {
+            "type": "education",
+            "id": "video-spacy-irl-lemmatization",
+            "title": "Rethinking rule-based lemmatization",
+            "slogan": "spaCy IRL 2019",
+            "url": "https://www.youtube.com/playlist?list=PLBmcuObd5An4UC6jvK_-eSl6jCvP1gwXc",
+            "author": "Guadalupe Romero",
+            "author_links": {
+                "twitter": "_guadiromero",
+                "github": "guadi1994"
+            },
+            "youtube": "88zcQODyuko",
+            "category": ["videos"]
+        },
+        {
+            "type": "education",
+            "id": "video-spacy-irl-scispacy",
+            "title": "ScispaCy: A spaCy pipeline & models for scientific & biomedical text",
+            "slogan": "spaCy IRL 2019",
+            "url": "https://www.youtube.com/playlist?list=PLBmcuObd5An4UC6jvK_-eSl6jCvP1gwXc",
+            "author": "Mark Neumann",
+            "author_links": {
+                "twitter": "MarkNeumannnn",
+                "github": "DeNeutoy"
+            },
+            "youtube": "2_HSKDALwuw",
+            "category": ["videos"]
+        },
+        {
+            "type": "education",
             "id": "podcast-nlp-highlights",
             "title": "NLP Highlights #78: Where do corpora come from?",
             "slogan": "January 2019",
@@ -1506,7 +1562,7 @@
         },
         {
             "id": "pyInflect",
-            "slogan": "A python module for word inflections",
+            "slogan": "A Python module for word inflections",
             "description": "This package uses the [spaCy 2.0 extensions](https://spacy.io/usage/processing-pipelines#extensions) to add word inflections to the system.",
             "github": "bjascob/pyInflect",
             "pip": "pyinflect",
@@ -1525,6 +1581,29 @@
             },
             "category": ["pipeline"],
             "tags": ["inflection"]
+        },
+        {
+            "id": "lemminflect",
+            "slogan": "A Python module for English lemmatization and inflection",
+            "description": "LemmInflect uses a dictionary approach to lemmatize English words and inflect them into forms specified by a user supplied [Universal Dependencies](https://universaldependencies.org/u/pos/) or [Penn Treebank](https://www.ling.upenn.edu/courses/Fall_2003/ling001/penn_treebank_pos.html) tag.  The library works with out-of-vocabulary (OOV) words by applying neural network techniques to classify word forms and choose the appropriate morphing rules. The system acts as a standalone module or as an extension to spaCy.",
+            "github": "bjascob/LemmInflect",
+            "pip": "lemminflect",
+            "thumb": "https://raw.githubusercontent.com/bjascob/LemmInflect/master/docs/img/icons8-citrus-80.png",
+            "code_example": [
+                "import spacy",
+                "import lemminflect",
+                "",
+                "nlp = spacy.load('en_core_web_sm')",
+                "doc = nlp('I am testing this example.')",
+                "doc[2]._.lemma()         # 'test'",
+                "doc[4]._.inflect('NNS')  # 'examples'"
+            ],
+            "author": "Brad Jascob",
+            "author_links": {
+                "github": "bjascob"
+            },
+            "category": ["pipeline"],
+            "tags": ["inflection", "lemmatizer"]
         },
         {
             "id": "blackstone",
@@ -1601,7 +1680,7 @@
                 "website": "https://explosion.ai"
             }
         },
-                {
+        {
             "id": "negspacy",
             "title": "negspaCy",
             "slogan": "spaCy pipeline object for negating concepts in text based on the NegEx algorithm.",
@@ -1611,8 +1690,8 @@
             "pip": "negspacy",
             "category": ["pipeline", "scientific"],
             "tags": ["negation", "text-processing"],
-            "thumb":"https://github.com/jenojp/negspacy/blob/master/docs/thumb.png?raw=true",
-            "image":"https://github.com/jenojp/negspacy/blob/master/docs/icon.png?raw=true",
+            "thumb": "https://github.com/jenojp/negspacy/blob/master/docs/thumb.png?raw=true",
+            "image": "https://github.com/jenojp/negspacy/blob/master/docs/icon.png?raw=true",
             "code_example": [
                 "import spacy",
                 "from negspacy.negation import Negex",
@@ -1629,6 +1708,79 @@
             "author_links": {
                 "github": "jenojp",
                 "twitter": "jenojp"
+            }
+        },
+        {
+            "id": "ronec",
+            "title": "RONEC - Romanian Named Entity Corpus",
+            "slogan": "Named Entity Recognition corpus for Romanian language.",
+            "github": "dumitrescustefan/ronec",
+            "url": "https://github.com/dumitrescustefan/ronec",
+            "description": "The corpus holds 5127 sentences, annotated with 16 classes, with a total of 26376 annotated entities. The corpus comes into two formats: BRAT and CONLLUP.",
+            "category": ["standalone", "models"],
+            "tags": ["ner", "romanian"],
+            "thumb": "https://raw.githubusercontent.com/dumitrescustefan/ronec/master/res/thumb.png",
+            "code_example": [
+                "# to train a new model on ronec",
+                "python3 convert_spacy.py ronec/conllup/ronec.conllup output",
+                "python3 -m spacy train ro models output/train_ronec.json output/train_ronec.json -p ent",
+                "",
+                "# download the Romanian NER model",
+                "python -m spacy download ro_ner",
+                "",
+                "# load the model and print entities for a simple sentence",
+                "import spacy",
+                "",
+                "nlp = spacy.load(\"ro_ner\")",
+                "doc = nlp(\"Popescu Ion a fost la Cluj\")",
+                "",
+                "for ent in doc.ents:",
+                "\tprint(ent.text, ent.start_char, ent.end_char, ent.label_)"
+            ],
+            "author": "Stefan Daniel Dumitrescu, Andrei-Marius Avram"
+        },
+        {
+            "id": "num_fh",
+            "title": "Numeric Fused-Head",
+            "slogan": "Numeric Fused-Head Identificaiton and Resolution in English",
+            "description": "This package provide a wrapper for the Numeric Fused-Head in English. It provides another information layer on numbers that refer to another entity which is not obvious from the syntactic tree.",
+            "github": "yanaiela/num_fh",
+            "pip": "num_fh",
+            "category": ["pipeline", "research"],
+            "code_example": [
+                "import spacy",
+                "from num_fh import NFH",
+                "nlp = spacy.load('en_core_web_sm')",
+                "nfh = NFH(nlp)",
+                "nlp.add_pipe(nfh, first=False)",
+                "doc = nlp(\"I told you two, that only one of them is the one who will get 2 or 3 icecreams\")",
+                "",
+                "assert doc[16]._.is_nfh == True",
+                "assert doc[18]._.is_nfh == False",
+                "assert doc[3]._.is_deter_nfh == True",
+                "assert doc[16]._.is_deter_nfh == False",
+                "assert len(doc._.nfh) == 4"
+            ],
+            "author": "Yanai Elazar",
+            "author_links": {
+                "github": "yanaiela",
+                "twitter": "yanaiela",
+                "website": "https://yanaiela.github.io"
+            }
+        },
+        {
+            "id": "presidio",
+            "title": "Presidio",
+            "slogan": "Context aware, pluggable and customizable data protection and PII data anonymization",
+            "description": "Presidio *(Origin from Latin praesidium ‘protection, garrison’)* helps to ensure sensitive text is properly managed and governed. It provides fast ***analytics*** and ***anonymization*** for sensitive text such as credit card numbers, names, locations, social security numbers, bitcoin wallets, US phone numbers and financial data. Presidio analyzes the text using predefined or custom recognizers to identify entities, patterns, formats, and checksums with relevant context.",
+            "url": "https://aka.ms/presidio",
+            "image": "https://raw.githubusercontent.com/microsoft/presidio/master/docs/assets/before-after.png",
+            "github": "microsoft/presidio",
+            "category": ["standalone"],
+            "thumb": "https://avatars0.githubusercontent.com/u/6154722",
+            "author": "Microsoft",
+            "author_links": {
+                "github": "microsoft"
             }
         }
     ],

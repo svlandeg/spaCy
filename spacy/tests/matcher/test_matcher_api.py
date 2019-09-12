@@ -344,3 +344,69 @@ def test_dependency_matcher_compile(dependency_matcher):
 #     assert matches[0][1] == [[3, 1, 2]]
 #     assert matches[1][1] == [[4, 3, 3]]
 #     assert matches[2][1] == [[4, 3, 2]]
+
+
+def test_attr_pipeline_checks(en_vocab):
+    doc1 = Doc(en_vocab, words=["Test"])
+    doc1.is_parsed = True
+    doc2 = Doc(en_vocab, words=["Test"])
+    doc2.is_tagged = True
+    doc3 = Doc(en_vocab, words=["Test"])
+    # DEP requires is_parsed
+    matcher = Matcher(en_vocab)
+    matcher.add("TEST", None, [{"DEP": "a"}])
+    matcher(doc1)
+    with pytest.raises(ValueError):
+        matcher(doc2)
+    with pytest.raises(ValueError):
+        matcher(doc3)
+    # TAG, POS, LEMMA require is_tagged
+    for attr in ("TAG", "POS", "LEMMA"):
+        matcher = Matcher(en_vocab)
+        matcher.add("TEST", None, [{attr: "a"}])
+        matcher(doc2)
+        with pytest.raises(ValueError):
+            matcher(doc1)
+        with pytest.raises(ValueError):
+            matcher(doc3)
+    # TEXT/ORTH only require tokens
+    matcher = Matcher(en_vocab)
+    matcher.add("TEST", None, [{"ORTH": "a"}])
+    matcher(doc1)
+    matcher(doc2)
+    matcher(doc3)
+    matcher = Matcher(en_vocab)
+    matcher.add("TEST", None, [{"TEXT": "a"}])
+    matcher(doc1)
+    matcher(doc2)
+    matcher(doc3)
+
+
+@pytest.mark.parametrize(
+    "pattern,text",
+    [
+        ([{"IS_ALPHA": True}], "a"),
+        ([{"IS_ASCII": True}], "a"),
+        ([{"IS_DIGIT": True}], "1"),
+        ([{"IS_LOWER": True}], "a"),
+        ([{"IS_UPPER": True}], "A"),
+        ([{"IS_TITLE": True}], "Aaaa"),
+        ([{"IS_PUNCT": True}], "."),
+        ([{"IS_SPACE": True}], "\n"),
+        ([{"IS_BRACKET": True}], "["),
+        ([{"IS_QUOTE": True}], '"'),
+        ([{"IS_LEFT_PUNCT": True}], "``"),
+        ([{"IS_RIGHT_PUNCT": True}], "''"),
+        ([{"IS_STOP": True}], "the"),
+        ([{"LIKE_NUM": True}], "1"),
+        ([{"LIKE_URL": True}], "http://example.com"),
+        ([{"LIKE_EMAIL": True}], "mail@example.com"),
+    ],
+)
+def test_matcher_schema_token_attributes(en_vocab, pattern, text):
+    matcher = Matcher(en_vocab)
+    doc = Doc(en_vocab, words=text.split(" "))
+    matcher.add("Rule", None, pattern)
+    assert len(matcher) == 1
+    matches = matcher(doc)
+    assert len(matches) == 1

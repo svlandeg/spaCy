@@ -18,6 +18,7 @@ from .structs cimport SerializedLexemeC
 from .compat import copy_reg, basestring_
 from .errors import Errors
 from .lemmatizer import Lemmatizer
+from .lookups import Lookups
 from .attrs import intify_attrs, NORM
 from .vectors import Vectors
 from ._ml import link_vectors_to_models
@@ -32,7 +33,7 @@ cdef class Vocab:
     DOCS: https://spacy.io/api/vocab
     """
     def __init__(self, lex_attr_getters=None, tag_map=None, lemmatizer=None,
-                 strings=tuple(), oov_prob=-20., **deprecated_kwargs):
+                 strings=tuple(), lookups=None, oov_prob=-20., **deprecated_kwargs):
         """Create the vocabulary.
 
         lex_attr_getters (dict): A dictionary mapping attribute IDs to
@@ -42,12 +43,15 @@ cdef class Vocab:
         lemmatizer (object): A lemmatizer. Defaults to `None`.
         strings (StringStore): StringStore that maps strings to integers, and
             vice versa.
+        lookups (Lookups): Container for large lookup tables and dictionaries.
         RETURNS (Vocab): The newly constructed object.
         """
         lex_attr_getters = lex_attr_getters if lex_attr_getters is not None else {}
         tag_map = tag_map if tag_map is not None else {}
         if lemmatizer in (None, True, False):
             lemmatizer = Lemmatizer({}, {}, {})
+        if lookups in (None, True, False):
+            lookups = Lookups()
         self.cfg = {'oov_prob': oov_prob}
         self.mem = Pool()
         self._by_orth = PreshMap()
@@ -59,6 +63,7 @@ cdef class Vocab:
         self.lex_attr_getters = lex_attr_getters
         self.morphology = Morphology(self.strings, tag_map, lemmatizer)
         self.vectors = Vectors()
+        self.lookups = lookups
 
     @property
     def lang(self):
@@ -429,6 +434,8 @@ cdef class Vocab:
                 file_.write(self.lexemes_to_bytes())
         if "vectors" not in "exclude" and self.vectors is not None:
             self.vectors.to_disk(path)
+        if "lookups" not in "exclude" and self.lookups is not None:
+            self.lookups.to_disk(path)
 
     def from_disk(self, path, exclude=tuple(), **kwargs):
         """Loads state from a directory. Modifies the object in place and
@@ -453,6 +460,8 @@ cdef class Vocab:
                 self.vectors.from_disk(path, exclude=["strings"])
             if self.vectors.name is not None:
                 link_vectors_to_models(self)
+        if "lookups" not in exclude:
+            self.lookups.from_disk(path)
         return self
 
     def to_bytes(self, exclude=tuple(), **kwargs):
@@ -472,7 +481,8 @@ cdef class Vocab:
         getters = OrderedDict((
             ("strings", lambda: self.strings.to_bytes()),
             ("lexemes", lambda: self.lexemes_to_bytes()),
-            ("vectors", deserialize_vectors)
+            ("vectors", deserialize_vectors),
+            ("lookups", lambda: self.lookups.to_bytes())
         ))
         exclude = util.get_serialization_exclude(getters, exclude, kwargs)
         return util.to_bytes(getters, exclude)
@@ -495,7 +505,8 @@ cdef class Vocab:
         setters = OrderedDict((
             ("strings", lambda b: self.strings.from_bytes(b)),
             ("lexemes", lambda b: self.lexemes_from_bytes(b)),
-            ("vectors", lambda b: serialize_vectors(b))
+            ("vectors", lambda b: serialize_vectors(b)),
+            ("lookups", lambda b: self.lookups.from_bytes(b))
         ))
         exclude = util.get_serialization_exclude(setters, exclude, kwargs)
         util.from_bytes(bytes_data, setters, exclude)

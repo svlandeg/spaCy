@@ -13,9 +13,6 @@ from thinc.misc import LayerNorm
 from thinc.neural.util import to_categorical
 from thinc.neural.util import get_array_module
 
-from spacy.kb import KnowledgeBase
-
-from spacy.cli.pretrain import get_cossim_loss
 from .functions import merge_subtokens
 from ..tokens.doc cimport Doc
 from ..syntax.nn_parser cimport Parser
@@ -27,7 +24,8 @@ from ..vocab cimport Vocab
 from ..syntax import nonproj
 from ..attrs import POS, ID
 from ..parts_of_speech import X
-from .._ml import Tok2Vec, build_tagger_model, cosine
+from ..kb import KnowledgeBase
+from .._ml import Tok2Vec, build_tagger_model, cosine, get_cossim_loss
 from .._ml import build_text_classifier, build_simple_cnn_text_classifier
 from .._ml import build_bow_text_classifier, build_nel_encoder
 from .._ml import link_vectors_to_models, zero_init, flatten
@@ -69,7 +67,7 @@ class Pipe(object):
         """
         self.require_model()
         predictions = self.predict([doc])
-        if isinstance(predictions, tuple) and len(tuple) == 2:
+        if isinstance(predictions, tuple) and len(predictions) == 2:
             scores, tensors = predictions
             self.set_annotations([doc], scores, tensor=tensors)
         else:
@@ -1040,7 +1038,10 @@ cdef class DependencyParser(Parser):
 
     @property
     def postprocesses(self):
-        return [nonproj.deprojectivize]
+        output = [nonproj.deprojectivize]
+        if self.cfg.get("learn_tokens") is True:
+            output.append(merge_subtokens)
+        return tuple(output)
 
     def add_multitask_objective(self, target):
         if target == "cloze":
@@ -1062,7 +1063,7 @@ cdef class DependencyParser(Parser):
     @property
     def labels(self):
         # Get the labels from the model by looking at the available moves
-        return tuple(set(move.split("-")[1] for move in self.move_names))
+        return tuple(set(move.split("-")[1] for move in self.move_names if "-" in move))
 
 
 cdef class EntityRecognizer(Parser):

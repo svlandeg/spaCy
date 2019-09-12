@@ -9,6 +9,8 @@
                 "en_core_web_lg",
                 "en_vectors_web_lg",
                 "en_pytt_bertbaseuncased_lg",
+                "en_pytt_robertabase_lg",
+                "en_pytt_distilbertbaseuncased_lg",
                 "en_pytt_xlnetbasecased_lg"
             ],
             "example": "This is a sentence.",
@@ -127,7 +129,7 @@
         { "code": "is", "name": "Icelandic" },
         { "code": "lt", "name": "Lithuanian" },
         { "code": "lv", "name": "Latvian" },
-        { "code": "rs", "name": "Serbian" },
+        { "code": "sr", "name": "Serbian" },
         { "code": "sk", "name": "Slovak" },
         { "code": "sl", "name": "Slovenian" },
         {
