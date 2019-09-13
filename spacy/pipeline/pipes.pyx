@@ -1253,12 +1253,10 @@ class EntityLinker(Pipe):
         return ent.text + "-" + str(ent.start_char) + "-" + str(ent.end_char)
 
     def _get_sentence_index(self, ent, doc):
-        print("finding sent index for", self._my_print_ent(ent))
         for i, sent in enumerate(doc.sents):
             if sent.start_char <= ent.start_char and sent.end_char >= ent.end_char:
-                print(" found", i)
                 return i
-        print(" found none")
+        print(" couldn't find a sentence for", self._my_print_ent(ent))
         return -1
 
     def predict(self, docs):
@@ -1314,7 +1312,6 @@ class EntityLinker(Pipe):
                             candidates.update(coref_cand)
 
                         candidates = list(candidates)
-                        print("all candidates:", [cand.entity_ for cand in candidates])
                         if not candidates:
                             # no prediction possible for this entity
                             for coref_ent in coref_ents:
@@ -1328,6 +1325,7 @@ class EntityLinker(Pipe):
                                     final_tensors.append(sentence_encodings[0])
                         else:
                             random.shuffle(candidates)
+                            print("all candidates:", [cand.entity_ for cand in candidates])
 
                             # this will set all prior probabilities to 0 if they should be excluded from the model
                             prior_probs = xp.asarray([c.prior_prob for c in candidates])
@@ -1355,7 +1353,7 @@ class EntityLinker(Pipe):
                                         sentence_norm = sentence_norms[corefent_sent_i]
                                         sims = xp.dot(entity_encodings, sentence_encoding_t) / (sentence_norm * entity_norm)
                                         print(" sims", sims)
-                                        # TODO: remove to avoid conflict with master
+                                        # TODO: remove below to avoid conflict with master
                                         if sims.shape != prior_probs.shape:
                                             raise ValueError("internal inconsistency")
                                         coref_scores = prior_probs + sims - (prior_probs*sims)
@@ -1363,8 +1361,10 @@ class EntityLinker(Pipe):
                                         scores_list.append(coref_scores)
                                 if scores_list:
                                     print("scores_list", scores_list)
-                                    for s, score in enumerate(scores):
-                                        scores[s] = xp.asarray([s_list[i]] for s_list in scores_list).argmax()
+                                    for s in range(len(scores)):
+                                        coref_list = [[s_list[s]] for s_list in scores_list]
+                                        print(s, coref_list)
+                                        scores[s] = max(xp.asarray(coref_list))
                                 print(" best scores", scores)
 
                             # TODO: thresholding
