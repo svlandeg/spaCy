@@ -1,6 +1,8 @@
 # coding: utf-8
 from __future__ import unicode_literals
 
+from spacy.tokens import Span
+
 """Script that evaluates the influence of coref annotations on the performance
 of an entity linking model.
 """
@@ -15,7 +17,7 @@ from bin.wiki_entity_linking import training_set_creator
 from bin.wiki_entity_linking.wikidata_train_entity_linker import measure_baselines, measure_acc
 from spacy.kb import KnowledgeBase
 
-wp_train_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_train_dataset/")
+wp_train_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_small/")
 kb_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_KB/")
 nlp_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_EL/nlp/")
 
@@ -26,11 +28,24 @@ def now():
     return datetime.datetime.now()
 
 
+class CorefComponent(object):
+    def __init__(self):
+        Span.set_extension("coref_cluster", default=[])
+
+    def __call__(self, doc):
+        for ent in doc.ents:
+            # TODO
+            ent._.coref_cluster = []
+        return doc
+
+
 def eval_wp():
     # STEP 1 : load the NLP object
     print()
     print(now(), "STEP 1: loading model from", nlp_dir)
     nlp = spacy.load(nlp_dir)
+    # adding toy coref component to the cluster
+    nlp.add_pipe(CorefComponent(), after="ner")  # add it to the pipeline
 
     # STEP 2 : read the KB
     print()

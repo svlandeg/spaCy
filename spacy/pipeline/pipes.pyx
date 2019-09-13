@@ -6,6 +6,7 @@ from __future__ import unicode_literals
 import numpy
 import srsly
 import random
+import operator
 from collections import OrderedDict
 from thinc.api import chain
 from thinc.v2v import Affine, Maxout, Softmax
@@ -1151,6 +1152,7 @@ class EntityLinker(Pipe):
         return sgd
 
     def update(self, docs, golds, state=None, drop=0.0, sgd=None, losses=None):
+        # TODO: This function currently assumes that a doc is one sentence
         self.require_model()
         self.require_kb()
 
@@ -1238,8 +1240,32 @@ class EntityLinker(Pipe):
             self.set_annotations(docs, kb_ids, tensors=tensors)
             yield from docs
 
+    def get_coref_cluster(self, ent):
+        """ Temp method - should be adjusted when neuralcoref is properly integrated """
+        print("getting coref clusters for", self._my_print_ent(ent))
+        if not ent._.coref_cluster:
+            print(" -returning itself")
+            return [ent]
+        print(" -returning cluster", [self._my_print_ent(ce) for ce in ent._.coref_cluster])
+        return ent._.coref_cluster
+
+    def _my_print_ent(self, ent):
+        return ent.text + "-" + str(ent.start_char) + "-" + str(ent.end_char)
+
+    def _get_sentence_index(self, ent, doc):
+        print("finding sent index for", self._my_print_ent(ent))
+        for i, sent in enumerate(doc.sents):
+            if sent.start_char <= ent.start_char and sent.end_char >= ent.end_char:
+                print(" found", i)
+                return i
+        print(" found none")
+        return -1
+
     def predict(self, docs):
-        """ Return the KB IDs for each entity in each doc, including NIL if there is no prediction """
+        """
+        Return the KB IDs for each entity in each doc, including NIL if there is no prediction
+        This method resolves all entities in a coref chain at the same time
+        """
         self.require_model()
         self.require_kb()
 
@@ -1253,48 +1279,106 @@ class EntityLinker(Pipe):
         if isinstance(docs, Doc):
             docs = [docs]
 
-        context_encodings = self.model(docs)
-        xp = get_array_module(context_encodings)
-
         for i, doc in enumerate(docs):
+            offsets_to_kb = dict()
             if len(doc) > 0:
                 # currently, the context is the same for each entity in a sentence (should be refined)
-                context_encoding = context_encodings[i]
-                context_enc_t = context_encoding.T
-                norm_1 = xp.linalg.norm(context_enc_t)
+                sentences = [sent.as_doc() for sent in doc.sents]
+                sentence_encodings = self.model(sentences)
+                xp = get_array_module(sentence_encodings)
+
+                sentence_encodings_t = [sentence_encoding.T for sentence_encoding in sentence_encodings]
+                sentence_norms = [xp.linalg.norm(sentence_encoding_t) for sentence_encoding_t in sentence_encodings_t]
+                print(i, "found", len(sentences), "sentences")
+                print("sentence offsets:", [(s.start_char, s.end_char) for s in doc.sents])
+
+                # looping through each entity
                 for ent in doc.ents:
-                    entity_count += 1
+                    print()
+                    print("evaluating ent", self._my_print_ent(ent))
+                    # check whether this was processed before as part of a coref chain
+                    if not (ent.start_char, ent.end_char) in offsets_to_kb:
+                        # fetch the other entities coreferent to this one, and resolve all at once
+                        coref_ents = self.get_coref_cluster(ent)
+                        entity_count += len(coref_ents)
+                        candidates = set()
 
-                    candidates = self.kb.get_candidates(ent.text)
-                    if not candidates:
-                        final_kb_ids.append(self.NIL)  # no prediction possible for this entity
-                        final_tensors.append(context_encoding)
+                        for coref_ent in coref_ents:
+                            print("analysing coref ent", self._my_print_ent(coref_ent))
+                            coref_offset = (coref_ent.start_char, coref_ent.end_char)
+                            coref_cand = self.kb.get_candidates(coref_ent.text)
+                            print(" - these candidates:", [cand.entity_ for cand in coref_cand])
+                            candidates.update(coref_cand)
+
+                        candidates = list(candidates)
+                        print("all candidates:", [cand.entity_ for cand in candidates])
+                        if not candidates:
+                            # no prediction possible for this entity
+                            for coref_ent in coref_ents:
+                                coref_offset = (coref_ent.start_char, coref_ent.end_char)
+                                offsets_to_kb[coref_offset] = self.NIL
+                                corefent_sent_i = self._get_sentence_index(ent, doc)
+                                if corefent_sent_i >= 0:
+                                    final_tensors.append(sentence_encodings[corefent_sent_i])
+                                else:
+                                    # TODO: not sure what to do here, but we need a tensor
+                                    final_tensors.append(sentence_encodings[0])
+                        else:
+                            random.shuffle(candidates)
+
+                            # this will set all prior probabilities to 0 if they should be excluded from the model
+                            prior_probs = xp.asarray([c.prior_prob for c in candidates])
+                            if not self.cfg.get("incl_prior", True):
+                                prior_probs = xp.asarray([[0.0] for c in candidates])
+                            scores = prior_probs
+                            print("prior probs", prior_probs)
+
+                            # add in similarity from the context
+                            if self.cfg.get("incl_context", True):
+                                entity_encodings = xp.asarray([c.entity_vector for c in candidates])
+                                entity_norm = xp.linalg.norm(entity_encodings, axis=1)
+
+                                if len(entity_encodings) != len(prior_probs):
+                                    raise RuntimeError(Errors.E147.format(method="predict", msg="vectors not of equal length"))
+
+                                scores_list = list()
+                                # cosine similarity, for each coreferent entity
+                                for coref_ent in coref_ents:
+                                    print("resolving coref ent", self._my_print_ent(coref_ent))
+                                    corefent_sent_i = self._get_sentence_index(ent, doc)
+                                    print(" sent", corefent_sent_i)
+                                    if corefent_sent_i >= 0:
+                                        sentence_encoding_t = sentence_encodings_t[corefent_sent_i]
+                                        sentence_norm = sentence_norms[corefent_sent_i]
+                                        sims = xp.dot(entity_encodings, sentence_encoding_t) / (sentence_norm * entity_norm)
+                                        coref_scores = prior_probs + sims - (prior_probs*sims)
+                                        print(" coref_scores", coref_scores)
+                                        scores_list.append(coref_scores)
+                                if scores_list:
+                                    print("scores_list", scores_list)
+                                    for s, score in enumerate(scores):
+                                        scores[s] = xp.asarray([s_list[i]] for s_list in scores_list).argmax()
+                                print(" best scores", scores)
+
+                            # TODO: thresholding
+                            best_index = scores.argmax()
+                            best_candidate = candidates[best_index]
+
+                            for coref_ent in coref_ents:
+                                coref_offset = (coref_ent.start_char, coref_ent.end_char)
+                                offsets_to_kb[coref_offset] = best_candidate.entity_
+                                corefent_sent_i = self._get_sentence_index(ent, doc)
+                                if corefent_sent_i >= 0:
+                                    # should we add the encoding of this sentence, or of the best coref case ?
+                                    final_tensors.append(sentence_encodings[corefent_sent_i])
+                                else:
+                                    # TODO: not sure what to do here, but we need a tensor
+                                    final_tensors.append(sentence_encodings[0])
                     else:
-                        random.shuffle(candidates)
-
-                        # this will set all prior probabilities to 0 if they should be excluded from the model
-                        prior_probs = xp.asarray([c.prior_prob for c in candidates])
-                        if not self.cfg.get("incl_prior", True):
-                            prior_probs = xp.asarray([[0.0] for c in candidates])
-                        scores = prior_probs
-
-                        # add in similarity from the context
-                        if self.cfg.get("incl_context", True):
-                            entity_encodings = xp.asarray([c.entity_vector for c in candidates])
-                            norm_2 = xp.linalg.norm(entity_encodings, axis=1)
-
-                            if len(entity_encodings) != len(prior_probs):
-                                raise RuntimeError(Errors.E147.format(method="predict", msg="vectors not of equal length"))
-
-                             # cosine similarity
-                            sims = xp.dot(entity_encodings, context_enc_t) / (norm_1 * norm_2)
-                            scores = prior_probs + sims - (prior_probs*sims)
-
-                        # TODO: thresholding
-                        best_index = scores.argmax()
-                        best_candidate = candidates[best_index]
-                        final_kb_ids.append(best_candidate.entity_)
-                        final_tensors.append(context_encoding)
+                        print("already seen it")
+            for offset, kb_id in sorted(offsets_to_kb.items(), key=operator.itemgetter(0)):
+                final_kb_ids.append(kb_id)
+                print("sorted", offset, "-->", kb_id)
 
         if not (len(final_tensors) == len(final_kb_ids) == entity_count):
             raise RuntimeError(Errors.E147.format(method="predict", msg="result variables not of equal length"))
