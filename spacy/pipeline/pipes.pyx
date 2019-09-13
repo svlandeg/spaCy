@@ -1266,6 +1266,9 @@ class EntityLinker(Pipe):
         Return the KB IDs for each entity in each doc, including NIL if there is no prediction
         This method resolves all entities in a coref chain at the same time
         """
+        print()
+        print("PREDICTING, context=", self.cfg.get("incl_context", True), "prior=", self.cfg.get("incl_prior", True))
+        print()
         self.require_model()
         self.require_kb()
 
@@ -1329,7 +1332,7 @@ class EntityLinker(Pipe):
                             # this will set all prior probabilities to 0 if they should be excluded from the model
                             prior_probs = xp.asarray([c.prior_prob for c in candidates])
                             if not self.cfg.get("incl_prior", True):
-                                prior_probs = xp.asarray([[0.0] for c in candidates])
+                                prior_probs = xp.asarray([0.0 for c in candidates])
                             scores = prior_probs
                             print("prior probs", prior_probs)
 
@@ -1351,6 +1354,10 @@ class EntityLinker(Pipe):
                                         sentence_encoding_t = sentence_encodings_t[corefent_sent_i]
                                         sentence_norm = sentence_norms[corefent_sent_i]
                                         sims = xp.dot(entity_encodings, sentence_encoding_t) / (sentence_norm * entity_norm)
+                                        print(" sims", sims)
+                                        # TODO: remove to avoid conflict with master
+                                        if sims.shape != prior_probs.shape:
+                                            raise ValueError("internal inconsistency")
                                         coref_scores = prior_probs + sims - (prior_probs*sims)
                                         print(" coref_scores", coref_scores)
                                         scores_list.append(coref_scores)
@@ -1362,11 +1369,14 @@ class EntityLinker(Pipe):
 
                             # TODO: thresholding
                             best_index = scores.argmax()
+                            print("best_index", best_index)
                             best_candidate = candidates[best_index]
+                            print("best_candidate", best_candidate.entity_)
 
                             for coref_ent in coref_ents:
                                 coref_offset = (coref_ent.start_char, coref_ent.end_char)
                                 offsets_to_kb[coref_offset] = best_candidate.entity_
+                                print("SET", best_candidate.entity_, "for", coref_offset)
                                 corefent_sent_i = self._get_sentence_index(ent, doc)
                                 if corefent_sent_i >= 0:
                                     # should we add the encoding of this sentence, or of the best coref case ?

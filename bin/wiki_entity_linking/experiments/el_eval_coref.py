@@ -70,13 +70,13 @@ def eval_wp():
     print(now(), "STEP 4: measuring the baselines and EL performance of dev data")
     measure_performance(data_per_sentence, kb, nlp)
 
-    print()
-    print(now(), "STEP 5: adjust predictions to follow coref chain")
-    new_data = coref_global_optimum(data_per_sentence, coref_data_by_article, nlp)
+    # print()
+    # print(now(), "STEP 5: adjust predictions to follow coref chain")
+    # new_data = coref_global_optimum(data_per_sentence, coref_data_by_article, nlp)
 
-    print()
-    print(now(), "STEP 6: measuring the baselines and EL performance of NEW dev data")
-    measure_performance(new_data, kb, nlp)
+    # print()
+    # print(now(), "STEP 6: measuring the baselines and EL performance of NEW dev data")
+    # measure_performance(new_data, kb, nlp)
 
 
 def coref_global_optimum(data, coref_data_by_article, nlp):

@@ -356,7 +356,8 @@ def read_training(nlp, training_dir, dev, limit, kb=None, sentence=False, coref=
                         current_doc = None
                         try:
                             text = f.read()
-                            other_pipes = []
+                            # at this point we only need the NER and the sentence segmentation
+                            other_pipes = ["entity_linker"]
                             # disable the parser if we don't need the sentence segmentation
                             if not sentence:
                                 other_pipes = [
