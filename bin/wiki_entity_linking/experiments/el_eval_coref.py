@@ -17,11 +17,12 @@ from bin.wiki_entity_linking import training_set_creator
 from bin.wiki_entity_linking.wikidata_train_entity_linker import measure_baselines, measure_acc
 from spacy.kb import KnowledgeBase
 
-wp_train_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_small/")
+# wp_train_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_small/")
+wp_train_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_train_dataset/")
 kb_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_KB/")
 nlp_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_EL/nlp/")
 
-dev_limit = 10
+dev_limit = None
 
 
 def now():
@@ -80,9 +81,9 @@ def eval_wp():
         coref=True,
     )
     print("Dev testing on", len(wp_data), "docs")
-    for doc, gold in wp_data:
-        article_id = doc.user_data["orig_article_id"]
-        print(" - doc", article_id, len(doc.ents), "entities")
+    # for doc, gold in wp_data:
+        # article_id = doc.user_data["orig_article_id"]
+        # print(" - doc", article_id, len(doc.ents), "entities")
 
     print()
     print(now(), "STEP 4: measuring the baselines and EL performance of dev data")
