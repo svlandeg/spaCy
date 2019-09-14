@@ -356,14 +356,7 @@ def read_training(nlp, training_dir, dev, limit, kb=None, sentence=False, coref=
                         current_doc = None
                         try:
                             text = f.read()
-                            # at this point we only need the NER and the sentence segmentation
-                            other_pipes = ["entity_linker"]
-                            # disable the parser if we don't need the sentence segmentation
-                            if not sentence:
-                                other_pipes = [
-                                    pipe for pipe in nlp.pipe_names if pipe != "ner"
-                                ]
-                            current_doc = nlp(text, disable=other_pipes)
+                            current_doc = nlp(text, disable=["entity_linker"])
                             current_doc.user_data["orig_article_id"] = article_id
                         except Exception as e:
                             print("Problem parsing article", article_id, e)
@@ -400,7 +393,7 @@ def read_training(nlp, training_dir, dev, limit, kb=None, sentence=False, coref=
                             print(" -read", total_entities, "articles")
                         if coref:
                             entities_by_coref_id = _read_coreference(training_dir, current_doc)
-                            coref_data[article_id] = (current_doc, entities_by_coref_id)
+                            coref_data[article_id] = entities_by_coref_id
 
     print(" -read", total_articles, "articles with", total_entities, "entities")
     if coref:

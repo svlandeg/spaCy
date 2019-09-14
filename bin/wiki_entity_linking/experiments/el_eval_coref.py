@@ -39,13 +39,28 @@ class CorefComponent(object):
         return doc
 
 
+    def add_coref_from_file(self, data, coref_data_by_article):
+        """ Set coref annotations from file"""
+        # TODO: this is a toy method, should be done by neuralcoref directly!
+
+        for doc, gold in data:
+            article_id = doc.user_data["orig_article_id"]
+            coref_in_doc = coref_data_by_article.get(article_id, dict())
+
+            for cluster_id, span_list in coref_in_doc.items():
+                for ent in span_list:
+                    ent._.coref_cluster = span_list
+                    # print("SET", span_list, "for", ent)
+
+
 def eval_wp():
     # STEP 1 : load the NLP object
     print()
     print(now(), "STEP 1: loading model from", nlp_dir)
     nlp = spacy.load(nlp_dir)
     # adding toy coref component to the cluster
-    nlp.add_pipe(CorefComponent(), after="ner")  # add it to the pipeline
+    coref_comp = CorefComponent()
+    nlp.add_pipe(coref_comp, after="ner")  # add it to the pipeline
 
     # STEP 2 : read the KB
     print()
@@ -55,69 +70,42 @@ def eval_wp():
 
     print()
     print(now(), "STEP 3: reading the training data from", wp_train_dir)
-    data_per_sentence, coref_data_by_article = training_set_creator.read_training(
+    wp_data, coref_data_by_article = training_set_creator.read_training(
         nlp=nlp,
         training_dir=wp_train_dir,
         dev=True,
         limit=dev_limit,
         kb=None,
-        sentence=True,
+        sentence=False,
         coref=True,
     )
-    print("Dev testing on", len(data_per_sentence), "sentences")
+    print("Dev testing on", len(wp_data), "docs")
+    for doc, gold in wp_data:
+        article_id = doc.user_data["orig_article_id"]
+        print(" - doc", article_id, len(doc.ents), "entities")
 
     print()
     print(now(), "STEP 4: measuring the baselines and EL performance of dev data")
-    measure_performance(data_per_sentence, kb, nlp)
+    measure_performance(wp_data, kb, nlp)
+
+    print()
+    print(now(), "STEP 5: set coref annotations from file")
+    coref_comp.add_coref_from_file(wp_data, coref_data_by_article)
+    for doc, gold in wp_data:
+        article_id = doc.user_data["orig_article_id"]
+        print(" - doc", article_id, len(doc.ents), "entities")
+
+    print()
+    print(now(), "STEP 6: measuring the baselines and EL performance of dev data")
+    measure_performance(wp_data, kb, nlp)
 
     # print()
-    # print(now(), "STEP 5: adjust predictions to follow coref chain")
+    # print(now(), "STEP 6: adjust predictions to follow coref chain")
     # new_data = coref_global_optimum(data_per_sentence, coref_data_by_article, nlp)
 
     # print()
-    # print(now(), "STEP 6: measuring the baselines and EL performance of NEW dev data")
+    # print(now(), "STEP 7: measuring the baselines and EL performance of NEW dev data")
     # measure_performance(new_data, kb, nlp)
-
-
-def coref_global_optimum(data, coref_data_by_article, nlp):
-    for sentence, gold in data:
-        sent_doc = nlp(sentence.text)
-
-        u = sentence.user_data
-        article_id = u["orig_article_id"]
-        sent_offset = u["sent_offset"]
-        coref_doc, coref_in_doc = coref_data_by_article.get(article_id, dict())
-
-        doc_offset_to_cluster_id = dict()
-        for cluster_id, span_list in coref_in_doc.items():
-            for entity in span_list:
-                doc_offset_to_cluster_id[(entity.start_char, entity.end_char)] = cluster_id
-
-        for offset, value in gold.links.items():
-            start_char, end_char = offset
-            doc_start_char = start_char + sent_offset
-            doc_end_char = end_char + sent_offset
-            mention = sentence.text[start_char:end_char]
-            mention2 = coref_doc.text[start_char+sent_offset:end_char+sent_offset]
-            doc_offset = (doc_start_char, doc_end_char)
-            print("article/sentence", article_id, sent_offset, "offset", offset, "-->", "value", value, mention, "==", mention2)
-            for ent in sent_doc.ents:
-                if ent.start_char == start_char:
-                    print(" -->", ent, ent.kb_id_)
-            cluster_id = doc_offset_to_cluster_id.get(doc_offset, None)
-            if cluster_id:
-                print(" coref cluster", coref_in_doc[cluster_id])
-                for coref_span in coref_in_doc[cluster_id]:
-                    if coref_span.start_char != doc_start_char:
-                        print(" coref span", coref_span.start_char, coref_span.end_char)
-                        coref_span_doc = nlp(coref_span.sent.text)
-                        for ent in coref_span_doc.ents:
-                            if ent.start_char == coref_span.start_char - coref_span.sent.start_char:
-                                print(" -->", ent, ent.kb_id_)
-
-            print()
-
-    return data
 
 
 def measure_performance(data, kb, nlp):
