@@ -92,9 +92,9 @@ def eval_wp():
     print()
     print(now(), "STEP 5: set coref annotations from file")
     coref_comp.add_coref_from_file(wp_data, coref_data_by_article)
-    for doc, gold in wp_data:
-        article_id = doc.user_data["orig_article_id"]
-        print(" - doc", article_id, len(doc.ents), "entities")
+    # for doc, gold in wp_data:
+        # article_id = doc.user_data["orig_article_id"]
+        # print(" - doc", article_id, len(doc.ents), "entities")
 
     print()
     print(now(), "STEP 6: measuring the baselines and EL performance of dev data")
