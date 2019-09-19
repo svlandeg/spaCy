@@ -22,7 +22,7 @@ wp_train_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_train_dataset/
 kb_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_KB/")
 nlp_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_EL/nlp/")
 
-dev_limit = None
+dev_limit = 5
 
 
 def now():
@@ -39,8 +39,8 @@ class CorefComponent(object):
             ent._.coref_cluster = []
         return doc
 
-
-    def add_coref_from_file(self, data, coref_data_by_article):
+    @staticmethod
+    def add_coref_from_file(data, coref_data_by_article):
         """ Set coref annotations from file"""
         # TODO: this is a toy method, should be done by neuralcoref directly!
 
@@ -54,14 +54,14 @@ class CorefComponent(object):
                     # print("SET", span_list, "for", ent)
 
 
-def eval_wp():
+def eval_el():
     # STEP 1 : load the NLP object
     print()
     print(now(), "STEP 1: loading model from", nlp_dir)
     nlp = spacy.load(nlp_dir)
     # adding toy coref component to the cluster
     coref_comp = CorefComponent()
-    nlp.add_pipe(coref_comp, after="ner")  # add it to the pipeline
+    nlp.add_pipe(coref_comp, after="ner", name="coref")  # add it to the pipeline
 
     # STEP 2 : read the KB
     print()
@@ -69,8 +69,13 @@ def eval_wp():
     kb = KnowledgeBase(vocab=nlp.vocab)
     kb.load_bulk(kb_dir / "kb")
 
+    eval_wp(nlp, kb)
+
+
+def eval_wp(nlp, kb):
+    # STEP 3 : read the dev data
     print()
-    print(now(), "STEP 3: reading the training data from", wp_train_dir)
+    print(now(), "STEP 3: reading the dev data from", wp_train_dir)
     wp_data, coref_data_by_article = training_set_creator.read_training(
         nlp=nlp,
         training_dir=wp_train_dir,
@@ -85,42 +90,43 @@ def eval_wp():
         # article_id = doc.user_data["orig_article_id"]
         # print(" - doc", article_id, len(doc.ents), "entities")
 
+    # STEP 4 : Measure performance on the dev data
     print()
     print(now(), "STEP 4: measuring the baselines and EL performance of dev data")
     measure_performance(wp_data, kb, nlp)
 
+    # STEP 5 : set coref annotations from file
     print()
     print(now(), "STEP 5: set coref annotations from file")
+    coref_comp = nlp.get_pipe("coref")
     coref_comp.add_coref_from_file(wp_data, coref_data_by_article)
     # for doc, gold in wp_data:
         # article_id = doc.user_data["orig_article_id"]
         # print(" - doc", article_id, len(doc.ents), "entities")
 
+    # STEP 6 : measure performance again
     print()
     print(now(), "STEP 6: measuring the baselines and EL performance of dev data")
     measure_performance(wp_data, kb, nlp)
 
-    # print()
-    # print(now(), "STEP 6: adjust predictions to follow coref chain")
-    # new_data = coref_global_optimum(data_per_sentence, coref_data_by_article, nlp)
-
-    # print()
-    # print(now(), "STEP 7: measuring the baselines and EL performance of NEW dev data")
-    # measure_performance(new_data, kb, nlp)
-
 
 def measure_performance(data, kb, nlp):
     counts, acc_r, acc_r_d, acc_p, acc_p_d, acc_o, acc_o_d = measure_baselines(data, kb)
-    print("dev counts:", sorted(counts.items(), key=lambda x: x[0]))
+    print()
+    print(" dev counts:", sorted(counts.items(), key=lambda x: x[0]))
+    print()
 
     oracle_by_label = [(x, round(y, 3)) for x, y in acc_o_d.items()]
-    print("dev accuracy oracle:", round(acc_o, 3), oracle_by_label)
+    print(" dev accuracy oracle:", round(acc_o, 3), oracle_by_label)
+    print()
 
     random_by_label = [(x, round(y, 3)) for x, y in acc_r_d.items()]
-    print("dev accuracy random:", round(acc_r, 3), random_by_label)
+    print(" dev accuracy random:", round(acc_r, 3), random_by_label)
+    print()
 
     prior_by_label = [(x, round(y, 3)) for x, y in acc_p_d.items()]
-    print("dev accuracy prior:", round(acc_p, 3), prior_by_label)
+    print(" dev accuracy prior:", round(acc_p, 3), prior_by_label)
+    print()
 
     el_pipe = nlp.get_pipe("entity_linker")
     # using only context
@@ -128,15 +134,17 @@ def measure_performance(data, kb, nlp):
     el_pipe.cfg["incl_prior"] = False
     dev_acc_context, dev_acc_cont_d = measure_acc(data, el_pipe)
     context_by_label = [(x, round(y, 3)) for x, y in dev_acc_cont_d.items()]
-    print("dev accuracy context:", round(dev_acc_context, 3), context_by_label)
+    print(" dev accuracy context:", round(dev_acc_context, 3), context_by_label)
+    print()
 
     # measuring combined accuracy (prior + context)
     el_pipe.cfg["incl_context"] = True
     el_pipe.cfg["incl_prior"] = True
     dev_acc_combo, dev_acc_combo_d = measure_acc(data, el_pipe)
     combo_by_label = [(x, round(y, 3)) for x, y in dev_acc_combo_d.items()]
-    print("dev accuracy prior+context:", round(dev_acc_combo, 3), combo_by_label)
+    print(" dev accuracy prior+context:", round(dev_acc_combo, 3), combo_by_label)
+    print()
 
 
 if __name__ == "__main__":
-    eval_wp()
+    eval_el()
