@@ -1243,8 +1243,11 @@ class EntityLinker(Pipe):
     def get_coref_cluster(self, ent):
         """ Temp method - should be adjusted when neuralcoref is properly integrated """
         # print("getting coref clusters for", self._my_print_ent(ent))
+        if not ent.has_extension("coref_clusters"):
+            # print(" -returning itself (1)")
+            return [ent]
         if not ent._.coref_cluster:
-            # print(" -returning itself")
+            # print(" -returning itself (2)")
             return [ent]
         # print(" -returning cluster", [self._my_print_ent(ce) for ce in ent._.coref_cluster])
         return ent._.coref_cluster
