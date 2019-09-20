@@ -13,7 +13,8 @@ wp_data = "eval_wp_el_output_310.jsonl"
 
 
 class NewsParser:
-    news_data = "annotate_news_output_350.jsonl"
+    # news_data = "annotate_news_output_350.jsonl"
+    news_data = "annotate_news_output_500.jsonl"
     invalid = 0
     nils = dict()
 

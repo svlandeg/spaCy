@@ -74,8 +74,6 @@ def eval_news(nlp, kb):
         coref_gold = GoldParse(doc=coref_doc, links=gold.links)
         news_data_coref.extend([(coref_doc, coref_gold)])
 
-    print(len(news_data_coref))
-
     # STEP 6 : measure performance again
     print()
     print(now(), "STEP 6: measuring the baselines and EL performance of dev data + coref")

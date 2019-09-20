@@ -354,7 +354,7 @@ def measure_baselines(data, kb):
                         oracle_incorrect_d[label] = oracle_incorrect_d.get(label, 0) + 1
 
         except Exception as e:
-            print("Error assessing accuracy", e)
+            print("Error measuring baselines", e)
 
     acc_prior, acc_prior_d = calculate_acc(prior_correct_d, prior_incorrect_d)
     acc_rand, acc_rand_d = calculate_acc(random_correct_d, random_incorrect_d)
