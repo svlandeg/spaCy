@@ -1,5 +1,8 @@
 # coding: utf-8
 from __future__ import unicode_literals
+
+from bin.wiki_entity_linking.experiments import prodigy_reader
+
 """Script to take a previously created Knowledge Base and train an entity linking
 pipeline. The provided KB directory should hold the kb, the original nlp object and
 its vocab used to create the KB, and a few auxiliary files such as the entity definitions,
@@ -262,21 +265,23 @@ def measure_acc(data, el_pipe=None, error_analysis=False):
                 gold_entity = correct_entries_per_article.get(offset, None)
                 # the gold annotations are not complete so we can't evaluate missing annotations as 'wrong'
                 if gold_entity is not None:
-                    if gold_entity == pred_entity:
-                        correct = correct_by_label.get(ent_label, 0)
-                        correct_by_label[ent_label] = correct + 1
-                    else:
-                        incorrect = incorrect_by_label.get(ent_label, 0)
-                        incorrect_by_label[ent_label] = incorrect + 1
-                        if error_analysis:
-                            print(ent.text, "in", doc)
-                            print(
-                                "Predicted",
-                                pred_entity,
-                                "should have been",
-                                gold_entity,
-                            )
-                            print()
+                    # TODO: clean up
+                    if ent_label not in prodigy_reader.NewsParser.LABELS_TO_IGNORE:
+                        if gold_entity == pred_entity:
+                            correct = correct_by_label.get(ent_label, 0)
+                            correct_by_label[ent_label] = correct + 1
+                        else:
+                            incorrect = incorrect_by_label.get(ent_label, 0)
+                            incorrect_by_label[ent_label] = incorrect + 1
+                            if error_analysis:
+                                print(ent.text, "in", doc)
+                                print(
+                                    "Predicted",
+                                    pred_entity,
+                                    "should have been",
+                                    gold_entity,
+                                )
+                                print()
 
         except Exception as e:
             print("Error assessing accuracy", e)
@@ -316,42 +321,46 @@ def measure_baselines(data, kb):
                 label = ent.label_
                 start = ent.start_char
                 end = ent.end_char
+                ent_label = ent.label_
                 offset = _offset(start, end)
                 gold_entity = correct_entries_per_article.get(offset, None)
 
                 # the gold annotations are not complete so we can't evaluate missing annotations as 'wrong'
                 if gold_entity is not None:
-                    counts_d[label] = counts_d.get(label, 0) + 1
-                    candidates = kb.get_candidates(ent.text)
-                    oracle_candidate = ""
-                    best_candidate = ""
-                    random_candidate = ""
-                    if candidates:
-                        scores = []
 
-                        for c in candidates:
-                            scores.append(c.prior_prob)
-                            if c.entity_ == gold_entity:
-                                oracle_candidate = c.entity_
+                    # TODO: clean up
+                    if ent_label not in prodigy_reader.NewsParser.LABELS_TO_IGNORE:
+                        counts_d[label] = counts_d.get(label, 0) + 1
+                        candidates = kb.get_candidates(ent.text)
+                        oracle_candidate = ""
+                        best_candidate = ""
+                        random_candidate = ""
+                        if candidates:
+                            scores = []
 
-                        best_index = scores.index(max(scores))
-                        best_candidate = candidates[best_index].entity_
-                        random_candidate = random.choice(candidates).entity_
+                            for c in candidates:
+                                scores.append(c.prior_prob)
+                                if c.entity_ == gold_entity:
+                                    oracle_candidate = c.entity_
 
-                    if gold_entity == best_candidate:
-                        prior_correct_d[label] = prior_correct_d.get(label, 0) + 1
-                    else:
-                        prior_incorrect_d[label] = prior_incorrect_d.get(label, 0) + 1
+                            best_index = scores.index(max(scores))
+                            best_candidate = candidates[best_index].entity_
+                            random_candidate = random.choice(candidates).entity_
 
-                    if gold_entity == random_candidate:
-                        random_correct_d[label] = random_correct_d.get(label, 0) + 1
-                    else:
-                        random_incorrect_d[label] = random_incorrect_d.get(label, 0) + 1
+                        if gold_entity == best_candidate:
+                            prior_correct_d[label] = prior_correct_d.get(label, 0) + 1
+                        else:
+                            prior_incorrect_d[label] = prior_incorrect_d.get(label, 0) + 1
 
-                    if gold_entity == oracle_candidate:
-                        oracle_correct_d[label] = oracle_correct_d.get(label, 0) + 1
-                    else:
-                        oracle_incorrect_d[label] = oracle_incorrect_d.get(label, 0) + 1
+                        if gold_entity == random_candidate:
+                            random_correct_d[label] = random_correct_d.get(label, 0) + 1
+                        else:
+                            random_incorrect_d[label] = random_incorrect_d.get(label, 0) + 1
+
+                        if gold_entity == oracle_candidate:
+                            oracle_correct_d[label] = oracle_correct_d.get(label, 0) + 1
+                        else:
+                            oracle_incorrect_d[label] = oracle_incorrect_d.get(label, 0) + 1
 
         except Exception as e:
             print("Error measuring baselines", e)

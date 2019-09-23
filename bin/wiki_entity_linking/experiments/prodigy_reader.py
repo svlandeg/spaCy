@@ -20,6 +20,8 @@ class NewsParser:
     nil_news_data = "annotate_news_nil_output_150.jsonl"
     invalid = 0
     nils = dict()
+    invalid_labels = 0
+    LABELS_TO_IGNORE = ['CARDINAL', 'DATE', 'MONEY', 'ORDINAL', 'QUANTITY', 'TIME', 'PERCENT']
 
     def read_news_data(self, nlp, orig=True, free_text=True):
         data = []
@@ -55,7 +57,9 @@ class NewsParser:
 
         print("parsed articles:", len(jsons_by_article.keys()))
         print("invalid annotations:", self.invalid)
+        print("invalid labels:", self.invalid_labels)
         print("data size (# articles):", len(data))
+        print("data size (# links):", sum([len(gold.links) for doc, gold in data]))
         for nil, count in self.nils.items():
             print(nil, ":", count)
         print()
@@ -83,14 +87,16 @@ class NewsParser:
                 self.invalid += 1
             else:
                 gold_id = accept[0]
-                if gold_id.startswith("NIL_"):
+                spans = json_obj["spans"]
+                assert len(spans) == 1
+                span = spans[0]
+                if span["label"] in self.LABELS_TO_IGNORE:
+                    self.invalid_labels += 1
+                elif gold_id.startswith("NIL_"):
                     previous_count = self.nils.get(gold_id, 0)
                     previous_count += 1
                     self.nils[gold_id] = previous_count
                 else:
-                    spans = json_obj["spans"]
-                    assert len(spans) == 1
-                    span = spans[0]
                     start = int(span["start"])
                     end = int(span["end"])
                     mention = span["text"]
@@ -124,14 +130,17 @@ class NewsParser:
             if answer != "accept" or not gold_id.startswith("Q"):
                 self.invalid += 1
             else:
-                if gold_id.startswith("NIL_"):
+                spans = json_obj["spans"]
+                assert len(spans) == 1
+                span = spans[0]
+
+                if span["label"] in self.LABELS_TO_IGNORE:
+                    self.invalid_labels += 1
+                elif gold_id.startswith("NIL_"):
                     previous_count = self.nils.get(gold_id, 0)
                     previous_count += 1
                     self.nils[gold_id] = previous_count
                 else:
-                    spans = json_obj["spans"]
-                    assert len(spans) == 1
-                    span = spans[0]
                     start = int(span["start"])
                     end = int(span["end"])
                     mention = span["text"]

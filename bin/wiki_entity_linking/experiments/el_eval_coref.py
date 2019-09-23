@@ -51,9 +51,9 @@ def eval_news(nlp, kb):
     # STEP 3 : read the dev data
     np = NewsParser()
     print()
-    orig = False
+    orig = True
     free_text = True
-    print(now(), "STEP 3: reading the dev data from", np.news_data, "orig", orig, "free_text", free_text)
+    print(now(), "STEP 3: reading the dev data, orig", orig, "free_text", free_text)
     news_data = np.read_news_data(nlp, orig=orig, free_text=free_text)
 
     print("Dev testing on", len(news_data), "docs")
@@ -79,10 +79,10 @@ def eval_news(nlp, kb):
 
     for doc, gold in news_data_coref:
         article_id = doc.user_data["orig_article_id"]
-        print(" - doc", article_id, len(doc.ents), "entities")
+        # print(" - doc", article_id, len(doc.ents), "entities")
         for key, value in gold.links.items():
             start, end = key
-            print(key, doc[start:end], "->", value)
+            # print(key, doc[start:end], "->", value)
 
     # STEP 6 : measure performance again
     print()
