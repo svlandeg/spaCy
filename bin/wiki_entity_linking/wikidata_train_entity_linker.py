@@ -306,6 +306,8 @@ def measure_baselines(data, kb):
     docs = [d for d, g in data if len(d) > 0]
     golds = [g for d, g in data if len(d) > 0]
 
+    ents = 0
+
     for doc, gold in zip(docs, golds):
         try:
             correct_entries_per_article = dict()
@@ -327,7 +329,7 @@ def measure_baselines(data, kb):
 
                 # the gold annotations are not complete so we can't evaluate missing annotations as 'wrong'
                 if gold_entity is not None:
-
+                    ents += 1
                     # TODO: clean up
                     if ent_label not in prodigy_reader.NewsParser.LABELS_TO_IGNORE:
                         counts_d[label] = counts_d.get(label, 0) + 1
@@ -364,6 +366,8 @@ def measure_baselines(data, kb):
 
         except Exception as e:
             print("Error measuring baselines", e)
+
+    print("mapped", ents, "entities to the gold standard data")
 
     acc_prior, acc_prior_d = calculate_acc(prior_correct_d, prior_incorrect_d)
     acc_rand, acc_rand_d = calculate_acc(random_correct_d, random_incorrect_d)

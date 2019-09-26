@@ -17,7 +17,9 @@ wp_data = "eval_wp_el_output_310.jsonl"
 class NewsParser:
     # news_data = "annotate_news_output_350.jsonl"
     news_data = "annotate_news_output_500.jsonl"
-    nil_news_data = "annotate_news_nil_output_150.jsonl"
+    nil_news_data = "annotate_news_nil_output_226.jsonl"
+    qids = 0
+    duplicates = 0
     invalid = 0
     nils = dict()
     invalid_labels = 0
@@ -55,7 +57,9 @@ class NewsParser:
             for article_id, json_objs in nil_jsons_by_article.items():
                 data.extend(self.process_article_nil(nlp, article_id, json_objs))
 
+        print("Q IDs:", self.qids)
         print("parsed articles:", len(jsons_by_article.keys()))
+        print("duplicate annotations:", self.duplicates)
         print("invalid annotations:", self.invalid)
         print("invalid labels:", self.invalid_labels)
         print("data size (# articles):", len(data))
@@ -83,14 +87,14 @@ class NewsParser:
             sent_offset = int(json_obj["sent_offset"])
             answer = json_obj["answer"]
             accept = json_obj["accept"]
-            if answer != "accept" or len(accept) != 1:
+            if answer.strip() != "accept" or len(accept) != 1:
                 self.invalid += 1
             else:
-                gold_id = accept[0]
+                gold_id = accept[0].strip()
                 spans = json_obj["spans"]
                 assert len(spans) == 1
                 span = spans[0]
-                if span["label"] in self.LABELS_TO_IGNORE:
+                if span["label"].strip() in self.LABELS_TO_IGNORE:
                     self.invalid_labels += 1
                 elif gold_id.startswith("NIL_"):
                     previous_count = self.nils.get(gold_id, 0)
@@ -99,12 +103,14 @@ class NewsParser:
                 else:
                     start = int(span["start"])
                     end = int(span["end"])
-                    mention = span["text"]
-                    label = span["label"]
-                    # print(start, end, label, mention, "=", article[sent_offset+start:sent_offset+end], "=", sentence[start:end])
-                    gold_entities[(start + sent_offset, end + sent_offset)] = {
-                        gold_id: 1.0
-                    }
+                    tuple_key = (start + sent_offset, end + sent_offset)
+                    # we found a duplicate annotation - ignore
+                    if gold_entities.get(tuple_key, None):
+                        assert list(gold_entities[tuple_key].keys()) == [gold_id]
+                        self.duplicates += 1
+                    else:
+                        gold_entities[tuple_key] = {gold_id: 1.0}
+                        self.qids += 1
 
         if not gold_entities:
             return []
@@ -126,8 +132,8 @@ class NewsParser:
         for json_obj in json_objs:
             assert article_id == int(json_obj["article_id"])
             answer = json_obj["answer"]
-            gold_id = json_obj.get("user_text", "")
-            if answer != "accept" or not gold_id.startswith("Q"):
+            gold_id = json_obj.get("user_text", "").strip()
+            if answer.strip() != "accept" or not (gold_id.startswith("Q") or gold_id.startswith("NIL")):
                 self.invalid += 1
             else:
                 spans = json_obj["spans"]
@@ -136,17 +142,22 @@ class NewsParser:
 
                 if span["label"] in self.LABELS_TO_IGNORE:
                     self.invalid_labels += 1
-                elif gold_id.startswith("NIL_"):
-                    previous_count = self.nils.get(gold_id, 0)
-                    previous_count += 1
-                    self.nils[gold_id] = previous_count
                 else:
-                    start = int(span["start"])
-                    end = int(span["end"])
-                    mention = span["text"]
-                    label = span["label"]
-                    # print(start, end, label, mention, "=", article[start:end])
-                    gold_entities[(start, end)] = {gold_id: 1.0}
+                    if gold_id.startswith("NIL_"):
+                        previous_count = self.nils.get(gold_id, 0)
+                        previous_count += 1
+                        self.nils[gold_id] = previous_count
+                    elif gold_id.startswith("Q"):
+                        start = int(span["start"])
+                        end = int(span["end"])
+                        tuple_key = (start, end)
+                        # we found a duplicate annotation - ignore
+                        if gold_entities.get(tuple_key, None):
+                            assert list(gold_entities[tuple_key].keys()) == [gold_id]
+                            self.duplicates += 1
+                        else:
+                            gold_entities[tuple_key] = {gold_id: 1.0}
+                            self.qids += 1
 
         if not gold_entities:
             return []
