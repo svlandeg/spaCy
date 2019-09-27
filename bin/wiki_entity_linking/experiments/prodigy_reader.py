@@ -58,7 +58,6 @@ class NewsParser:
                 data.extend(self.process_article_nil(nlp, article_id, json_objs))
 
         print("Q IDs:", self.qids)
-        print("parsed articles:", len(jsons_by_article.keys()))
         print("duplicate annotations:", self.duplicates)
         print("invalid annotations:", self.invalid)
         print("invalid labels:", self.invalid_labels)
@@ -88,7 +87,9 @@ class NewsParser:
             answer = json_obj["answer"]
             accept = json_obj["accept"]
             if answer.strip() != "accept" or len(accept) != 1:
-                self.invalid += 1
+                # these went through to the next round of NIL annotations, so not counting them double here
+                # self.invalid += 1
+                pass
             else:
                 gold_id = accept[0].strip()
                 spans = json_obj["spans"]
@@ -99,7 +100,10 @@ class NewsParser:
                 elif gold_id.startswith("NIL_"):
                     previous_count = self.nils.get(gold_id, 0)
                     previous_count += 1
-                    self.nils[gold_id] = previous_count
+                    # these 3 categories were repurposed for annotation in the free-text full-article "nil" task
+                    # so we don't count them here or these entities would be counted double
+                    if gold_id not in ("NIL_ambiguous", "NIL_otherLink", "NIL_unsure"):
+                        self.nils[gold_id] = previous_count
                 else:
                     start = int(span["start"])
                     end = int(span["end"])
