@@ -22,8 +22,8 @@ from spacy.kb import KnowledgeBase
 
 # wp_train_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_small/")
 wp_train_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_train_dataset/")
-kb_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_KB/")
-nlp_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_EL/nlp/")
+kb_dir = Path("C:/Users/Sofie/Documents/data/EL-data/KB/")
+nlp_dir = Path("C:/Users/Sofie/Documents/data/EL-data/EL/nlp/")
 
 
 
