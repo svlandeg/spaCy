@@ -14,7 +14,7 @@ from pathlib import Path
 import logging
 
 import spacy
-import neuralcoref
+# import neuralcoref
 
 # TODO: clean up paths
 from bin.wiki_entity_linking import wikipedia_processor
@@ -62,9 +62,9 @@ def eval_news(nlp, kb):
     logger.info("STEP 4: measuring the baselines and EL performance of dev data")
     measure_performance(news_data, kb, nlp)
 
-    # STEP 5 : set coref annotations with neuralcoref
+    # STEP 5 : set coref annotations with neuralcoref TODO
     logger.info("STEP 5: set coref annotations with neuralcoref")
-    neuralcoref.add_to_pipe(nlp)
+    # neuralcoref.add_to_pipe(nlp)
     news_data_coref = []
     for doc, gold in news_data:
         coref_doc = nlp(doc.text)
@@ -85,7 +85,7 @@ def eval_news(nlp, kb):
 
 
 def eval_wp(nlp, kb):
-    dev_wp_limit = 50
+    dev_wp_limit = 5000  # TODO: merge PR 4811 and define by # of articles
 
     # STEP 3 : read the dev data
     logger.info("STEP 3: reading the dev data from {}".format(training_path))
