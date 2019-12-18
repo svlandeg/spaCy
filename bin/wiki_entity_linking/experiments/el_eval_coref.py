@@ -16,15 +16,18 @@ import spacy
 import neuralcoref
 
 # TODO: clean up paths
-from bin.wiki_entity_linking import training_set_creator
-from bin.wiki_entity_linking.wikidata_train_entity_linker import measure_baselines, measure_acc
+from bin.wiki_entity_linking import wikipedia_processor
+from bin.wiki_entity_linking import TRAINING_DATA_FILE
+from bin.wiki_entity_linking.entity_linker_evaluation import measure_baselines, measure_performance
 from spacy.kb import KnowledgeBase
 
 # wp_train_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_small/")
 wp_train_dir = Path("C:/Users/Sofie/Documents/data/spacy_test_CLI_train_dataset/")
 kb_dir = Path("C:/Users/Sofie/Documents/data/EL-data/KB/")
-nlp_dir = Path("C:/Users/Sofie/Documents/data/EL-data/EL/nlp/")
+# nlp_dir = Path("C:/Users/Sofie/Documents/data/EL-data/EL/nlp/")
+nlp_dir = Path("C:/Users/Sofie/Documents/data/EL-data/RUN_full/nlp/")
 
+training_path = kb_dir / TRAINING_DATA_FILE
 
 
 def now():
@@ -43,8 +46,8 @@ def eval_el():
     kb = KnowledgeBase(vocab=nlp.vocab)
     kb.load_bulk(kb_dir / "kb")
 
-    # eval_wp(nlp, kb)
-    eval_news(nlp, kb)
+    eval_wp(nlp, kb)
+    # eval_news(nlp, kb)
 
 
 def eval_news(nlp, kb):
@@ -96,14 +99,15 @@ def eval_wp(nlp, kb):
     # STEP 3 : read the dev data
     print()
     print(now(), "STEP 3: reading the dev data from", wp_train_dir)
-    wp_data, coref_data_by_article = training_set_creator.read_training(
+    wp_data = wikipedia_processor.read_training(
         nlp=nlp,
-        training_dir=wp_train_dir,
+        entity_file_path=training_path,
         dev=True,
         limit=dev_wp_limit,
         kb=None,
-        sentence=False,
-        coref=True,
+        labels_discard=[],
+        # sentence=False,
+        # coref=True,
     )
     print("Dev testing on", len(wp_data), "docs")
     # for doc, gold in wp_data:

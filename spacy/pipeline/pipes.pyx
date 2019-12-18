@@ -1358,13 +1358,13 @@ class EntityLinker(Pipe):
                     if PRINT:
                         print()
                         print("evaluating ent", self._my_print_ent(ent))
-                    entity_count += 1
 
                     to_discard = self.cfg.get("labels_discard", [])
                     if to_discard and ent.label_ in to_discard:
                         # ignoring this entity - setting to NIL
+                        entity_count += 1
                         final_kb_ids.append(self.NIL)
-                        # TODO: not sure what to do here, but we need a tensor
+                        # TODO: empty-valued tensor ?
                         final_tensors.append(sentence_encodings[0])
 
                     else:
@@ -1406,7 +1406,7 @@ class EntityLinker(Pipe):
 
                             elif len(candidates) == 1:
                                 # shortcut for efficiency reasons: take the 1 candidate
-
+                                entity_count += 1
                                 # TODO: thresholding
                                 offsets_to_kb[coref_offset] = candidates[0].entity_
                                 final_tensors.append(sentence_encodings[0])

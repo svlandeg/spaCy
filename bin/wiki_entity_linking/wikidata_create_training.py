@@ -1,6 +1,6 @@
 # coding: utf-8
 """Script to create a useful Wikipedia training set, using coreference resolution
-to extend the number of training examples.
+to extend the number of training examples. TODO: fit into updated pipeline + document
 
 For the Wikipedia dump: get enwiki-latest-pages-articles-multistream.xml.bz2
 from https://dumps.wikimedia.org/enwiki/latest/
