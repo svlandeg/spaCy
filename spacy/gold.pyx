@@ -7,13 +7,13 @@ import random
 import numpy
 import tempfile
 import shutil
+import itertools
 from pathlib import Path
 import srsly
 
-from . import _align
 from .syntax import nonproj
 from .tokens import Doc, Span
-from .errors import Errors
+from .errors import Errors, AlignmentError
 from .compat import path2str
 from . import util
 from .util import minibatch, itershuffle
@@ -21,6 +21,7 @@ from .util import minibatch, itershuffle
 from libc.stdio cimport FILE, fopen, fclose, fread, fwrite, feof, fseek
 
 
+USE_NEW_ALIGN = False
 punct_re = re.compile(r"\W")
 
 
@@ -55,9 +56,10 @@ def tags_to_entities(tags):
 
 def merge_sents(sents):
     m_deps = [[], [], [], [], [], []]
+    m_cats = {}
     m_brackets = []
     i = 0
-    for (ids, words, tags, heads, labels, ner), brackets in sents:
+    for (ids, words, tags, heads, labels, ner), (cats, brackets) in sents:
         m_deps[0].extend(id_ + i for id_ in ids)
         m_deps[1].extend(words)
         m_deps[2].extend(tags)
@@ -66,11 +68,26 @@ def merge_sents(sents):
         m_deps[5].extend(ner)
         m_brackets.extend((b["first"] + i, b["last"] + i, b["label"])
                           for b in brackets)
+        m_cats.update(cats)
         i += len(ids)
-    return [(m_deps, m_brackets)]
+    return [(m_deps, (m_cats, m_brackets))]
 
 
-def align(tokens_a, tokens_b):
+_ALIGNMENT_NORM_MAP = [("``", "'"), ("''", "'"), ('"', "'"), ("`", "'")]
+
+
+def _normalize_for_alignment(tokens):
+    tokens = [w.replace(" ", "").lower() for w in tokens]
+    output = []
+    for token in tokens:
+        token = token.replace(" ", "").lower()
+        for before, after in _ALIGNMENT_NORM_MAP:
+            token = token.replace(before, after)
+        output.append(token)
+    return output
+
+
+def _align_before_v2_2_2(tokens_a, tokens_b):
     """Calculate alignment tables between two tokenizations, using the Levenshtein
     algorithm. The alignment is case-insensitive.
 
@@ -89,6 +106,7 @@ def align(tokens_a, tokens_b):
       * b2a_multi (Dict[int, int]): As with `a2b_multi`, but mapping the other
             direction.
     """
+    from . import _align
     if tokens_a == tokens_b:
         alignment = numpy.arange(len(tokens_a))
         return 0, alignment, alignment, {}, {}
@@ -106,6 +124,82 @@ def align(tokens_a, tokens_b):
             j2i[j] = i
             j2i_multi.pop(j)
     return cost, i2j, j2i, i2j_multi, j2i_multi
+
+
+def align(tokens_a, tokens_b):
+    """Calculate alignment tables between two tokenizations.
+
+    tokens_a (List[str]): The candidate tokenization.
+    tokens_b (List[str]): The reference tokenization.
+    RETURNS: (tuple): A 5-tuple consisting of the following information:
+      * cost (int): The number of misaligned tokens.
+      * a2b (List[int]): Mapping of indices in `tokens_a` to indices in `tokens_b`.
+        For instance, if `a2b[4] == 6`, that means that `tokens_a[4]` aligns
+        to `tokens_b[6]`. If there's no one-to-one alignment for a token,
+        it has the value -1.
+      * b2a (List[int]): The same as `a2b`, but mapping the other direction.
+      * a2b_multi (Dict[int, int]): A dictionary mapping indices in `tokens_a`
+        to indices in `tokens_b`, where multiple tokens of `tokens_a` align to
+        the same token of `tokens_b`.
+      * b2a_multi (Dict[int, int]): As with `a2b_multi`, but mapping the other
+            direction.
+    """
+    if not USE_NEW_ALIGN:
+        return _align_before_v2_2_2(tokens_a, tokens_b)
+    tokens_a = _normalize_for_alignment(tokens_a)
+    tokens_b = _normalize_for_alignment(tokens_b)
+    cost = 0
+    a2b = numpy.empty(len(tokens_a), dtype="i")
+    b2a = numpy.empty(len(tokens_b), dtype="i")
+    a2b_multi = {}
+    b2a_multi = {}
+    i = 0
+    j = 0
+    offset_a = 0
+    offset_b = 0
+    while i < len(tokens_a) and j < len(tokens_b):
+        a = tokens_a[i][offset_a:]
+        b = tokens_b[j][offset_b:]
+        a2b[i] =  b2a[j] = -1
+        if a == b:
+            if offset_a == offset_b == 0:
+                a2b[i] = j
+                b2a[j] = i
+            elif offset_a == 0:
+                cost += 2
+                a2b_multi[i] = j
+            elif offset_b == 0:
+                cost += 2
+                b2a_multi[j] = i
+            offset_a = offset_b = 0
+            i += 1
+            j += 1
+        elif a == "":
+            assert offset_a == 0
+            cost += 1
+            i += 1
+        elif b == "":
+            assert offset_b == 0
+            cost += 1
+            j += 1
+        elif b.startswith(a):
+            cost += 1
+            if offset_a == 0:
+                a2b_multi[i] = j
+            i += 1
+            offset_a = 0
+            offset_b += len(a)
+        elif a.startswith(b):
+            cost += 1
+            if offset_b == 0:
+                b2a_multi[j] = i
+            j += 1
+            offset_b = 0
+            offset_a += len(b)
+        else:
+            assert "".join(tokens_a) != "".join(tokens_b)
+            raise AlignmentError(Errors.E186.format(tok_a=tokens_a, tok_b=tokens_b))
+    return cost, a2b, b2a, a2b_multi, b2a_multi
 
 
 class GoldCorpus(object):
@@ -173,6 +267,11 @@ class GoldCorpus(object):
                 gold_tuples = read_json_file(loc)
             elif loc.parts[-1].endswith("jsonl"):
                 gold_tuples = srsly.read_jsonl(loc)
+                first_gold_tuple = next(gold_tuples)
+                gold_tuples = itertools.chain([first_gold_tuple], gold_tuples)
+                # TODO: proper format checks with schemas
+                if isinstance(first_gold_tuple, dict):
+                    gold_tuples = read_json_object(gold_tuples)
             elif loc.parts[-1].endswith("msg"):
                 gold_tuples = srsly.read_msgpack(loc)
             else:
@@ -206,61 +305,165 @@ class GoldCorpus(object):
         return n
 
     def train_docs(self, nlp, gold_preproc=False, max_length=None,
-                    noise_level=0.0):
+                    noise_level=0.0, orth_variant_level=0.0,
+                    ignore_misaligned=False):
         locs = list((self.tmp_dir / 'train').iterdir())
         random.shuffle(locs)
         train_tuples = self.read_tuples(locs, limit=self.limit)
         gold_docs = self.iter_gold_docs(nlp, train_tuples, gold_preproc,
                                         max_length=max_length,
                                         noise_level=noise_level,
-                                        make_projective=True)
+                                        orth_variant_level=orth_variant_level,
+                                        make_projective=True,
+                                        ignore_misaligned=ignore_misaligned)
         yield from gold_docs
 
     def train_docs_without_preprocessing(self, nlp, gold_preproc=False):
         gold_docs = self.iter_gold_docs(nlp, self.train_tuples, gold_preproc=gold_preproc)
         yield from gold_docs
 
-    def dev_docs(self, nlp, gold_preproc=False):
-        gold_docs = self.iter_gold_docs(nlp, self.dev_tuples, gold_preproc=gold_preproc)
+    def dev_docs(self, nlp, gold_preproc=False, ignore_misaligned=False):
+        gold_docs = self.iter_gold_docs(nlp, self.dev_tuples, gold_preproc=gold_preproc,
+                                        ignore_misaligned=ignore_misaligned)
         yield from gold_docs
 
     @classmethod
     def iter_gold_docs(cls, nlp, tuples, gold_preproc, max_length=None,
-                       noise_level=0.0, make_projective=False):
+                       noise_level=0.0, orth_variant_level=0.0, make_projective=False,
+                       ignore_misaligned=False):
         for raw_text, paragraph_tuples in tuples:
             if gold_preproc:
                 raw_text = None
             else:
                 paragraph_tuples = merge_sents(paragraph_tuples)
-            docs = cls._make_docs(nlp, raw_text, paragraph_tuples, gold_preproc,
-                                  noise_level=noise_level)
-            golds = cls._make_golds(docs, paragraph_tuples, make_projective)
+            docs, paragraph_tuples = cls._make_docs(nlp, raw_text,
+                    paragraph_tuples, gold_preproc, noise_level=noise_level,
+                    orth_variant_level=orth_variant_level)
+            golds = cls._make_golds(docs, paragraph_tuples, make_projective,
+                                    ignore_misaligned=ignore_misaligned)
             for doc, gold in zip(docs, golds):
-                if (not max_length) or len(doc) < max_length:
-                    yield doc, gold
+                if gold is not None:
+                    if (not max_length) or len(doc) < max_length:
+                        yield doc, gold
 
     @classmethod
-    def _make_docs(cls, nlp, raw_text, paragraph_tuples, gold_preproc, noise_level=0.0):
+    def _make_docs(cls, nlp, raw_text, paragraph_tuples, gold_preproc, noise_level=0.0, orth_variant_level=0.0):
         if raw_text is not None:
+            raw_text, paragraph_tuples = make_orth_variants(nlp, raw_text, paragraph_tuples, orth_variant_level=orth_variant_level)
             raw_text = add_noise(raw_text, noise_level)
-            return [nlp.make_doc(raw_text)]
+            return [nlp.make_doc(raw_text)], paragraph_tuples
         else:
+            docs = []
+            raw_text, paragraph_tuples = make_orth_variants(nlp, None, paragraph_tuples, orth_variant_level=orth_variant_level)
             return [Doc(nlp.vocab, words=add_noise(sent_tuples[1], noise_level))
-                    for (sent_tuples, brackets) in paragraph_tuples]
+                    for (sent_tuples, brackets) in paragraph_tuples], paragraph_tuples
+
 
     @classmethod
-    def _make_golds(cls, docs, paragraph_tuples, make_projective):
+    def _make_golds(cls, docs, paragraph_tuples, make_projective, ignore_misaligned=False):
         if len(docs) != len(paragraph_tuples):
             n_annots = len(paragraph_tuples)
             raise ValueError(Errors.E070.format(n_docs=len(docs), n_annots=n_annots))
-        if len(docs) == 1:
-            return [GoldParse.from_annot_tuples(docs[0], paragraph_tuples[0][0],
-                                                make_projective=make_projective)]
-        else:
-            return [GoldParse.from_annot_tuples(doc, sent_tuples,
-                                                make_projective=make_projective)
-                    for doc, (sent_tuples, brackets)
-                    in zip(docs, paragraph_tuples)]
+        golds = []
+        for doc, (sent_tuples, (cats, brackets)) in zip(docs, paragraph_tuples):
+            try:
+                gold = GoldParse.from_annot_tuples(doc, sent_tuples, cats=cats,
+                    make_projective=make_projective)
+            except AlignmentError:
+                if ignore_misaligned:
+                    gold = None
+                else:
+                    raise
+            golds.append(gold)
+        return golds
+
+
+def make_orth_variants(nlp, raw, paragraph_tuples, orth_variant_level=0.0):
+    if random.random() >= orth_variant_level:
+        return raw, paragraph_tuples
+    if random.random() >= 0.5:
+        lower = True
+        if raw is not None:
+            raw = raw.lower()
+    ndsv = nlp.Defaults.single_orth_variants
+    ndpv = nlp.Defaults.paired_orth_variants
+    # modify words in paragraph_tuples
+    variant_paragraph_tuples = []
+    for sent_tuples, brackets in paragraph_tuples:
+        ids, words, tags, heads, labels, ner = sent_tuples
+        if lower:
+            words = [w.lower() for w in words]
+        # single variants
+        punct_choices = [random.choice(x["variants"]) for x in ndsv]
+        for word_idx in range(len(words)):
+            for punct_idx in range(len(ndsv)):
+                if tags[word_idx] in ndsv[punct_idx]["tags"] \
+                        and words[word_idx] in ndsv[punct_idx]["variants"]:
+                    words[word_idx] = punct_choices[punct_idx]
+        # paired variants
+        punct_choices = [random.choice(x["variants"]) for x in ndpv]
+        for word_idx in range(len(words)):
+            for punct_idx in range(len(ndpv)):
+                if tags[word_idx] in ndpv[punct_idx]["tags"] \
+                        and words[word_idx] in itertools.chain.from_iterable(ndpv[punct_idx]["variants"]):
+                    # backup option: random left vs. right from pair
+                    pair_idx = random.choice([0, 1])
+                    # best option: rely on paired POS tags like `` / ''
+                    if len(ndpv[punct_idx]["tags"]) == 2:
+                        pair_idx = ndpv[punct_idx]["tags"].index(tags[word_idx])
+                    # next best option: rely on position in variants
+                    # (may not be unambiguous, so order of variants matters)
+                    else:
+                        for pair in ndpv[punct_idx]["variants"]:
+                            if words[word_idx] in pair:
+                                pair_idx = pair.index(words[word_idx])
+                    words[word_idx] = punct_choices[punct_idx][pair_idx]
+
+        variant_paragraph_tuples.append(((ids, words, tags, heads, labels, ner), brackets))
+    # modify raw to match variant_paragraph_tuples
+    if raw is not None:
+        variants = []
+        for single_variants in ndsv:
+            variants.extend(single_variants["variants"])
+        for paired_variants in ndpv:
+            variants.extend(list(itertools.chain.from_iterable(paired_variants["variants"])))
+        # store variants in reverse length order to be able to prioritize
+        # longer matches (e.g., "---" before "--")
+        variants = sorted(variants, key=lambda x: len(x))
+        variants.reverse()
+        variant_raw = ""
+        raw_idx = 0
+        # add initial whitespace
+        while raw_idx < len(raw) and re.match("\s", raw[raw_idx]):
+            variant_raw += raw[raw_idx]
+            raw_idx += 1
+        for sent_tuples, brackets in variant_paragraph_tuples:
+            ids, words, tags, heads, labels, ner = sent_tuples
+            for word in words:
+                match_found = False
+                # add identical word
+                if word not in variants and raw[raw_idx:].startswith(word):
+                    variant_raw += word
+                    raw_idx += len(word)
+                    match_found = True
+                # add variant word
+                else:
+                    for variant in variants:
+                        if not match_found and \
+                                raw[raw_idx:].startswith(variant):
+                            raw_idx += len(variant)
+                            variant_raw += word
+                            match_found = True
+                # something went wrong, abort
+                # (add a warning message?)
+                if not match_found:
+                    return raw, paragraph_tuples
+                # add following whitespace
+                while raw_idx < len(raw) and re.match("\s", raw[raw_idx]):
+                    variant_raw += raw[raw_idx]
+                    raw_idx += 1
+        return variant_raw, variant_paragraph_tuples
+    return raw, variant_paragraph_tuples
 
 
 def add_noise(orig, noise_level):
@@ -277,12 +480,8 @@ def add_noise(orig, noise_level):
 def _corrupt(c, noise_level):
     if random.random() >= noise_level:
         return c
-    elif c == " ":
-        return "\n"
-    elif c == "\n":
-        return " "
     elif c in [".", "'", "!", "?", ","]:
-        return ""
+        return "\n"
     else:
         return c.lower()
 
@@ -310,6 +509,9 @@ def json_to_tuple(doc):
     paragraphs = []
     for paragraph in doc["paragraphs"]:
         sents = []
+        cats = {}
+        for cat in paragraph.get("cats", {}):
+            cats[cat["label"]] = cat["value"]
         for sent in paragraph["sentences"]:
             words = []
             ids = []
@@ -329,7 +531,7 @@ def json_to_tuple(doc):
                 ner.append(token.get("ner", "-"))
             sents.append([
                 [ids, words, tags, heads, labels, ner],
-                sent.get("brackets", [])])
+                [cats, sent.get("brackets", [])]])
         if sents:
             yield [paragraph.get("raw", None), sents]
 
@@ -403,7 +605,6 @@ def _json_iterate(loc):
 
 def iob_to_biluo(tags):
     out = []
-    curr_label = None
     tags = list(tags)
     while tags:
         out.extend(_consume_os(tags))
@@ -428,6 +629,8 @@ def _consume_ent(tags):
         tags.pop(0)
     label = tag[2:]
     if length == 1:
+        if len(label) == 0:
+            raise ValueError(Errors.E177.format(tag=tag))
         return ["U-" + label]
     else:
         start = "B-" + label
@@ -442,15 +645,16 @@ cdef class GoldParse:
     DOCS: https://spacy.io/api/goldparse
     """
     @classmethod
-    def from_annot_tuples(cls, doc, annot_tuples, make_projective=False):
+    def from_annot_tuples(cls, doc, annot_tuples, cats=None, make_projective=False):
         _, words, tags, heads, deps, entities = annot_tuples
         return cls(doc, words=words, tags=tags, heads=heads, deps=deps,
-                   entities=entities, make_projective=make_projective)
+                   entities=entities, cats=cats,
+                   make_projective=make_projective)
 
-    def __init__(self, doc, annot_tuples=None, words=None, tags=None,
+    def __init__(self, doc, annot_tuples=None, words=None, tags=None, morphology=None,
                  heads=None, deps=None, entities=None, make_projective=False,
                  cats=None, links=None, **_):
-        """Create a GoldParse.
+        """Create a GoldParse. The fields will not be initialized if len(doc) is zero.
 
         doc (Doc): The document the annotations refer to.
         words (iterable): A sequence of unicode word strings.
@@ -479,122 +683,144 @@ cdef class GoldParse:
             negative examples respectively.
         RETURNS (GoldParse): The newly constructed object.
         """
-        if words is None:
-            words = [token.text for token in doc]
-        if tags is None:
-            tags = [None for _ in doc]
-        if heads is None:
-            heads = [None for token in doc]
-        if deps is None:
-            deps = [None for _ in doc]
-        if entities is None:
-            entities = ["-" for _ in doc]
-        elif len(entities) == 0:
-            entities = ["O" for _ in doc]
-        else:
-            # Translate the None values to '-', to make processing easier.
-            # See Issue #2603
-            entities = [(ent if ent is not None else "-") for ent in entities]
-            if not isinstance(entities[0], basestring):
-                # Assume we have entities specified by character offset.
-                entities = biluo_tags_from_offsets(doc, entities)
-
         self.mem = Pool()
         self.loss = 0
         self.length = len(doc)
 
-        # These are filled by the tagger/parser/entity recogniser
-        self.c.tags = <int*>self.mem.alloc(len(doc), sizeof(int))
-        self.c.heads = <int*>self.mem.alloc(len(doc), sizeof(int))
-        self.c.labels = <attr_t*>self.mem.alloc(len(doc), sizeof(attr_t))
-        self.c.has_dep = <int*>self.mem.alloc(len(doc), sizeof(int))
-        self.c.sent_start = <int*>self.mem.alloc(len(doc), sizeof(int))
-        self.c.ner = <Transition*>self.mem.alloc(len(doc), sizeof(Transition))
-
         self.cats = {} if cats is None else dict(cats)
         self.links = links
-        self.words = [None] * len(doc)
-        self.tags = [None] * len(doc)
-        self.heads = [None] * len(doc)
-        self.labels = [None] * len(doc)
-        self.ner = [None] * len(doc)
 
-        # This needs to be done before we align the words
-        if make_projective and heads is not None and deps is not None:
-            heads, deps = nonproj.projectivize(heads, deps)
-
-        # Do many-to-one alignment for misaligned tokens.
-        # If we over-segment, we'll have one gold word that covers a sequence
-        # of predicted words
-        # If we under-segment, we'll have one predicted word that covers a
-        # sequence of gold words.
-        # If we "mis-segment", we'll have a sequence of predicted words covering
-        # a sequence of gold words. That's many-to-many -- we don't do that.
-        cost, i2j, j2i, i2j_multi, j2i_multi = align([t.orth_ for t in doc], words)
-
-        self.cand_to_gold = [(j if j >= 0 else None) for j in i2j]
-        self.gold_to_cand = [(i if i >= 0 else None) for i in j2i]
-
-        annot_tuples = (range(len(words)), words, tags, heads, deps, entities)
-        self.orig_annot = list(zip(*annot_tuples))
-
-        for i, gold_i in enumerate(self.cand_to_gold):
-            if doc[i].text.isspace():
-                self.words[i] = doc[i].text
-                self.tags[i] = "_SP"
-                self.heads[i] = None
-                self.labels[i] = None
-                self.ner[i] = "O"
-            if gold_i is None:
-                if i in i2j_multi:
-                    self.words[i] = words[i2j_multi[i]]
-                    self.tags[i] = tags[i2j_multi[i]]
-                    is_last = i2j_multi[i] != i2j_multi.get(i+1)
-                    is_first = i2j_multi[i] != i2j_multi.get(i-1)
-                    # Set next word in multi-token span as head, until last
-                    if not is_last:
-                        self.heads[i] = i+1
-                        self.labels[i] = "subtok"
-                    else:
-                        self.heads[i] = self.gold_to_cand[heads[i2j_multi[i]]]
-                        self.labels[i] = deps[i2j_multi[i]]
-                    # Now set NER...This is annoying because if we've split
-                    # got an entity word split into two, we need to adjust the
-                    # BILUO tags. We can't have BB or LL etc.
-                    # Case 1: O -- easy.
-                    ner_tag = entities[i2j_multi[i]]
-                    if ner_tag == "O":
-                        self.ner[i] = "O"
-                    # Case 2: U. This has to become a B I* L sequence.
-                    elif ner_tag.startswith("U-"):
-                        if is_first:
-                            self.ner[i] = ner_tag.replace("U-", "B-", 1)
-                        elif is_last:
-                            self.ner[i] = ner_tag.replace("U-", "L-", 1)
-                        else:
-                            self.ner[i] = ner_tag.replace("U-", "I-", 1)
-                    # Case 3: L. If not last, change to I.
-                    elif ner_tag.startswith("L-"):
-                        if is_last:
-                            self.ner[i] = ner_tag
-                        else:
-                            self.ner[i] = ner_tag.replace("L-", "I-", 1)
-                    # Case 4: I. Stays correct
-                    elif ner_tag.startswith("I-"):
-                        self.ner[i] = ner_tag
+        # avoid allocating memory if the doc does not contain any tokens
+        if self.length > 0:
+            if words is None:
+                words = [token.text for token in doc]
+            if tags is None:
+                tags = [None for _ in words]
+            if heads is None:
+                heads = [None for _ in words]
+            if deps is None:
+                deps = [None for _ in words]
+            if morphology is None:
+                morphology = [None for _ in words]
+            if entities is None:
+                entities = ["-" for _ in words]
+            elif len(entities) == 0:
+                entities = ["O" for _ in words]
             else:
-                self.words[i] = words[gold_i]
-                self.tags[i] = tags[gold_i]
-                if heads[gold_i] is None:
-                    self.heads[i] = None
-                else:
-                    self.heads[i] = self.gold_to_cand[heads[gold_i]]
-                self.labels[i] = deps[gold_i]
-                self.ner[i] = entities[gold_i]
+                # Translate the None values to '-', to make processing easier.
+                # See Issue #2603
+                entities = [(ent if ent is not None else "-") for ent in entities]
+                if not isinstance(entities[0], basestring):
+                    # Assume we have entities specified by character offset.
+                    entities = biluo_tags_from_offsets(doc, entities)
 
-        cycle = nonproj.contains_cycle(self.heads)
-        if cycle is not None:
-            raise ValueError(Errors.E069.format(cycle=cycle, cycle_tokens=" ".join(["'{}'".format(self.words[tok_id]) for tok_id in cycle]), doc_tokens=" ".join(words[:50])))
+            # These are filled by the tagger/parser/entity recogniser
+            self.c.tags = <int*>self.mem.alloc(len(doc), sizeof(int))
+            self.c.heads = <int*>self.mem.alloc(len(doc), sizeof(int))
+            self.c.labels = <attr_t*>self.mem.alloc(len(doc), sizeof(attr_t))
+            self.c.has_dep = <int*>self.mem.alloc(len(doc), sizeof(int))
+            self.c.sent_start = <int*>self.mem.alloc(len(doc), sizeof(int))
+            self.c.ner = <Transition*>self.mem.alloc(len(doc), sizeof(Transition))
+
+            self.words = [None] * len(doc)
+            self.tags = [None] * len(doc)
+            self.heads = [None] * len(doc)
+            self.labels = [None] * len(doc)
+            self.ner = [None] * len(doc)
+            self.morphology = [None] * len(doc)
+
+            # This needs to be done before we align the words
+            if make_projective and heads is not None and deps is not None:
+                heads, deps = nonproj.projectivize(heads, deps)
+
+            # Do many-to-one alignment for misaligned tokens.
+            # If we over-segment, we'll have one gold word that covers a sequence
+            # of predicted words
+            # If we under-segment, we'll have one predicted word that covers a
+            # sequence of gold words.
+            # If we "mis-segment", we'll have a sequence of predicted words covering
+            # a sequence of gold words. That's many-to-many -- we don't do that.
+            cost, i2j, j2i, i2j_multi, j2i_multi = align([t.orth_ for t in doc], words)
+
+            self.cand_to_gold = [(j if j >= 0 else None) for j in i2j]
+            self.gold_to_cand = [(i if i >= 0 else None) for i in j2i]
+
+            annot_tuples = (range(len(words)), words, tags, heads, deps, entities)
+            self.orig_annot = list(zip(*annot_tuples))
+
+            for i, gold_i in enumerate(self.cand_to_gold):
+                if doc[i].text.isspace():
+                    self.words[i] = doc[i].text
+                    self.tags[i] = "_SP"
+                    self.heads[i] = None
+                    self.labels[i] = None
+                    self.ner[i] = None
+                    self.morphology[i] = set()
+                if gold_i is None:
+                    if i in i2j_multi:
+                        self.words[i] = words[i2j_multi[i]]
+                        self.tags[i] = tags[i2j_multi[i]]
+                        self.morphology[i] = morphology[i2j_multi[i]]
+                        is_last = i2j_multi[i] != i2j_multi.get(i+1)
+                        is_first = i2j_multi[i] != i2j_multi.get(i-1)
+                        # Set next word in multi-token span as head, until last
+                        if not is_last:
+                            self.heads[i] = i+1
+                            self.labels[i] = "subtok"
+                        else:
+                            head_i = heads[i2j_multi[i]]
+                            if head_i:
+                                self.heads[i] = self.gold_to_cand[head_i]
+                            self.labels[i] = deps[i2j_multi[i]]
+                        # Now set NER...This is annoying because if we've split
+                        # got an entity word split into two, we need to adjust the
+                        # BILUO tags. We can't have BB or LL etc.
+                        # Case 1: O -- easy.
+                        ner_tag = entities[i2j_multi[i]]
+                        if ner_tag == "O":
+                            self.ner[i] = "O"
+                        # Case 2: U. This has to become a B I* L sequence.
+                        elif ner_tag.startswith("U-"):
+                            if is_first:
+                                self.ner[i] = ner_tag.replace("U-", "B-", 1)
+                            elif is_last:
+                                self.ner[i] = ner_tag.replace("U-", "L-", 1)
+                            else:
+                                self.ner[i] = ner_tag.replace("U-", "I-", 1)
+                        # Case 3: L. If not last, change to I.
+                        elif ner_tag.startswith("L-"):
+                            if is_last:
+                                self.ner[i] = ner_tag
+                            else:
+                                self.ner[i] = ner_tag.replace("L-", "I-", 1)
+                        # Case 4: I. Stays correct
+                        elif ner_tag.startswith("I-"):
+                            self.ner[i] = ner_tag
+                else:
+                    self.words[i] = words[gold_i]
+                    self.tags[i] = tags[gold_i]
+                    self.morphology[i] = morphology[gold_i]
+                    if heads[gold_i] is None:
+                        self.heads[i] = None
+                    else:
+                        self.heads[i] = self.gold_to_cand[heads[gold_i]]
+                    self.labels[i] = deps[gold_i]
+                    self.ner[i] = entities[gold_i]
+
+            # Prevent whitespace that isn't within entities from being tagged as
+            # an entity.
+            for i in range(len(self.ner)):
+                if self.tags[i] == "_SP":
+                    prev_ner = self.ner[i-1] if i >= 1 else None
+                    next_ner = self.ner[i+1] if (i+1) < len(self.ner) else None
+                    if prev_ner == "O" or next_ner == "O":
+                        self.ner[i] = "O"
+
+            cycle = nonproj.contains_cycle(self.heads)
+            if cycle is not None:
+                raise ValueError(Errors.E069.format(cycle=cycle,
+                    cycle_tokens=" ".join(["'{}'".format(self.words[tok_id]) for tok_id in cycle]),
+                    doc_tokens=" ".join(words[:50])))
 
     def __len__(self):
         """Get the number of gold-standard tokens.
@@ -632,13 +858,17 @@ def docs_to_json(docs, id=0):
 
     docs (iterable / Doc): The Doc object(s) to convert.
     id (int): Id for the JSON.
-    RETURNS (list): The data in spaCy's JSON format.
+    RETURNS (dict): The data in spaCy's JSON format
+        - each input doc will be treated as a paragraph in the output doc
     """
     if isinstance(docs, Doc):
         docs = [docs]
     json_doc = {"id": id, "paragraphs": []}
     for i, doc in enumerate(docs):
-        json_para = {'raw': doc.text, "sentences": []}
+        json_para = {'raw': doc.text, "sentences": [], "cats": []}
+        for cat, val in doc.cats.items():
+            json_cat = {"label": cat, "value": val}
+            json_para["cats"].append(json_cat)
         ent_offsets = [(e.start_char, e.end_char, e.label_) for e in doc.ents]
         biluo_tags = biluo_tags_from_offsets(doc, ent_offsets)
         for j, sent in enumerate(doc.sents):
@@ -684,7 +914,7 @@ def biluo_tags_from_offsets(doc, entities, missing="O"):
     """
     # Ensure no overlapping entity labels exist
     tokens_in_ents = {}
-       
+
     starts = {token.idx: token.i for token in doc}
     ends = {token.idx + len(token): token.i for token in doc}
     biluo = ["-" for _ in doc]

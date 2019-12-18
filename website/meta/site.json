@@ -10,10 +10,7 @@
     "modelsRepo": "explosion/spacy-models",
     "social": {
         "twitter": "spacy_io",
-        "github": "explosion",
-        "reddit": "spacynlp",
-        "codepen": "explosion",
-        "gitter": "explosion/spaCy"
+        "github": "explosion"
     },
     "theme": "#09a3d5",
     "analytics": "UA-58931649-1",
@@ -26,10 +23,9 @@
         "apiKey": "371e26ed49d29a27bd36273dfdaf89af",
         "indexName": "spacy"
     },
-    "spacyVersion": "2.1",
     "binderUrl": "ines/spacy-io-binder",
     "binderBranch": "live",
-    "binderVersion": "2.1.8",
+    "binderVersion": "2.2.0",
     "sections": [
         { "id": "usage", "title": "Usage Documentation", "theme": "blue" },
         { "id": "models", "title": "Models Documentation", "theme": "blue" },
@@ -69,6 +65,7 @@
             "items": [
                 { "text": "Twitter", "url": "https://twitter.com/spacy_io" },
                 { "text": "GitHub", "url": "https://github.com/explosion/spaCy" },
+                { "text": "YouTube", "url": "https://youtube.com/c/ExplosionAI" },
                 { "text": "Blog", "url": "https://explosion.ai/blog" }
             ]
         }

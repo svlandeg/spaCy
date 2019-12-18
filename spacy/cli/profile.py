@@ -2,6 +2,7 @@
 from __future__ import unicode_literals, division, print_function
 
 import plac
+import tqdm
 from pathlib import Path
 import srsly
 import cProfile
@@ -9,7 +10,7 @@ import pstats
 import sys
 import itertools
 import thinc.extra.datasets
-from wasabi import Printer
+from wasabi import msg
 
 from ..util import load_model
 
@@ -26,7 +27,6 @@ def profile(model, inputs=None, n_texts=10000):
     It can either be provided as a JSONL file, or be read from sys.sytdin.
     If no input file is specified, the IMDB dataset is loaded via Thinc.
     """
-    msg = Printer()
     if inputs is not None:
         inputs = _read_inputs(inputs, msg)
     if inputs is None:
@@ -47,9 +47,6 @@ def profile(model, inputs=None, n_texts=10000):
 
 
 def parse_texts(nlp, texts):
-    # temp fix to avoid import issues cf https://github.com/explosion/spaCy/issues/4200
-    import tqdm
-
     for doc in nlp.pipe(tqdm.tqdm(texts), batch_size=16):
         pass
 

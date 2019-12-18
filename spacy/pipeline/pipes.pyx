@@ -14,7 +14,7 @@ from thinc.misc import LayerNorm
 from thinc.neural.util import to_categorical
 from thinc.neural.util import get_array_module
 
-from .functions import merge_subtokens
+from ..compat import basestring_
 from ..tokens.doc cimport Doc
 from ..syntax.nn_parser cimport Parser
 from ..syntax.ner cimport BiluoPushDown
@@ -22,6 +22,8 @@ from ..syntax.arc_eager cimport ArcEager
 from ..morphology cimport Morphology
 from ..vocab cimport Vocab
 
+from .functions import merge_subtokens
+from ..language import Language, component
 from ..syntax import nonproj
 from ..attrs import POS, ID
 from ..parts_of_speech import X
@@ -30,8 +32,8 @@ from .._ml import Tok2Vec, build_tagger_model, cosine, get_cossim_loss
 from .._ml import build_text_classifier, build_simple_cnn_text_classifier
 from .._ml import build_bow_text_classifier, build_nel_encoder
 from .._ml import link_vectors_to_models, zero_init, flatten
-from .._ml import masked_language_model, create_default_optimizer
-from ..errors import Errors, TempErrors
+from .._ml import masked_language_model, create_default_optimizer, get_cossim_loss
+from ..errors import Errors, TempErrors, user_warning, Warnings
 from .. import util
 
 
@@ -55,6 +57,10 @@ class Pipe(object):
         """Initialize a model for the pipe."""
         raise NotImplementedError
 
+    @classmethod
+    def from_nlp(cls, nlp, **cfg):
+        return cls(nlp.vocab, **cfg)
+
     def __init__(self, vocab, model=True, **cfg):
         """Create a new pipe instance."""
         raise NotImplementedError
@@ -70,7 +76,7 @@ class Pipe(object):
         predictions = self.predict([doc])
         if isinstance(predictions, tuple) and len(predictions) == 2:
             scores, tensors = predictions
-            self.set_annotations([doc], scores, tensor=tensors)
+            self.set_annotations([doc], scores, tensors=tensors)
         else:
             self.set_annotations([doc], predictions)
         return doc
@@ -91,7 +97,7 @@ class Pipe(object):
             predictions = self.predict(docs)
             if isinstance(predictions, tuple) and len(tuple) == 2:
                 scores, tensors = predictions
-                self.set_annotations(docs, scores, tensor=tensors)
+                self.set_annotations(docs, scores, tensors=tensors)
             else:
                 self.set_annotations(docs, predictions)
             yield from docs
@@ -126,7 +132,7 @@ class Pipe(object):
     def add_label(self, label):
         """Add an output label, to be predicted by the model.
 
-        It's possible to extend pre-trained models with new labels,
+        It's possible to extend pretrained models with new labels,
         but care should be taken to avoid the "catastrophic forgetting"
         problem.
         """
@@ -224,10 +230,9 @@ class Pipe(object):
         return self
 
 
+@component("tensorizer", assigns=["doc.tensor"])
 class Tensorizer(Pipe):
     """Pre-train position-sensitive vectors for tokens."""
-
-    name = "tensorizer"
 
     @classmethod
     def Model(cls, output_size=300, **cfg):
@@ -363,13 +368,12 @@ class Tensorizer(Pipe):
         return sgd
 
 
+@component("tagger", assigns=["token.tag", "token.pos"])
 class Tagger(Pipe):
     """Pipeline component for part-of-speech tagging.
 
     DOCS: https://spacy.io/api/tagger
     """
-
-    name = "tagger"
 
     def __init__(self, vocab, model=True, **cfg):
         self.vocab = vocab
@@ -425,18 +429,22 @@ class Tagger(Pipe):
         cdef Doc doc
         cdef int idx = 0
         cdef Vocab vocab = self.vocab
+        assign_morphology = self.cfg.get("set_morphology", True)
         for i, doc in enumerate(docs):
             doc_tag_ids = batch_tag_ids[i]
             if hasattr(doc_tag_ids, "get"):
                 doc_tag_ids = doc_tag_ids.get()
             for j, tag_id in enumerate(doc_tag_ids):
                 # Don't clobber preset POS tags
-                if doc.c[j].tag == 0 and doc.c[j].pos == 0:
-                    # Don't clobber preset lemmas
-                    lemma = doc.c[j].lemma
-                    vocab.morphology.assign_tag_id(&doc.c[j], tag_id)
-                    if lemma != 0 and lemma != doc.c[j].lex.orth:
-                        doc.c[j].lemma = lemma
+                if doc.c[j].tag == 0:
+                    if doc.c[j].pos == 0 and assign_morphology:
+                        # Don't clobber preset lemmas
+                        lemma = doc.c[j].lemma
+                        vocab.morphology.assign_tag_id(&doc.c[j], tag_id)
+                        if lemma != 0 and lemma != doc.c[j].lex.orth:
+                            doc.c[j].lemma = lemma
+                    else:
+                        doc.c[j].tag = self.vocab.strings[self.labels[tag_id]]
                 idx += 1
             if tensors is not None and len(tensors):
                 if isinstance(doc.tensor, numpy.ndarray) \
@@ -451,6 +459,10 @@ class Tagger(Pipe):
         if losses is not None and self.name not in losses:
             losses[self.name] = 0.
 
+        if not any(len(doc) for doc in docs):
+            # Handle cases where there are no tokens in any docs.
+            return
+
         tag_scores, bp_tag_scores = self.model.begin_update(docs, drop=drop)
         loss, d_tag_scores = self.get_loss(docs, golds, tag_scores)
         bp_tag_scores(d_tag_scores, sgd=sgd)
@@ -463,6 +475,9 @@ class Tagger(Pipe):
         an initial model.
         """
         if self._rehearsal_model is None:
+            return
+        if not any(len(doc) for doc in docs):
+            # Handle cases where there are no tokens in any docs.
             return
         guesses, backprop = self.model.begin_update(docs, drop=drop)
         target = self._rehearsal_model(docs)
@@ -498,6 +513,9 @@ class Tagger(Pipe):
 
     def begin_training(self, get_gold_tuples=lambda: [], pipeline=None, sgd=None,
                        **kwargs):
+        lemma_tables = ["lemma_rules", "lemma_index", "lemma_exc", "lemma_lookup"]
+        if not any(table in self.vocab.lookups for table in lemma_tables):
+            user_warning(Warnings.W022)
         orig_tag_map = dict(self.vocab.morphology.tag_map)
         new_tag_map = OrderedDict()
         for raw_text, annots_brackets in get_gold_tuples():
@@ -531,6 +549,8 @@ class Tagger(Pipe):
         return build_tagger_model(n_tags, **cfg)
 
     def add_label(self, label, values=None):
+        if not isinstance(label, basestring_):
+            raise ValueError(Errors.E187)
         if label in self.labels:
             return 0
         if self.model not in (True, False, None):
@@ -643,12 +663,11 @@ class Tagger(Pipe):
         return self
 
 
+@component("nn_labeller")
 class MultitaskObjective(Tagger):
     """Experimental: Assist training of a parser or tagger, by training a
     side-objective.
     """
-
-    name = "nn_labeller"
 
     def __init__(self, vocab, model=True, target='dep_tag_offset', **cfg):
         self.vocab = vocab
@@ -866,8 +885,7 @@ class ClozeMultitask(Pipe):
         # and look them up all at once. This prevents data copying.
         ids = self.model.ops.flatten([doc.to_array(ID).ravel() for doc in docs])
         target = vectors[ids]
-        gradient = (prediction - target) / prediction.shape[0]
-        loss = (gradient**2).sum()
+        loss, gradient = get_cossim_loss(prediction, target, ignore_zeros=True)
         return float(loss), gradient
 
     def update(self, docs, golds, drop=0., sgd=None, losses=None):
@@ -885,12 +903,12 @@ class ClozeMultitask(Pipe):
             losses[self.name] += loss
 
 
+@component("textcat", assigns=["doc.cats"])
 class TextCategorizer(Pipe):
     """Pipeline component for text classification.
 
     DOCS: https://spacy.io/api/textcategorizer
     """
-    name = 'textcat'
 
     @classmethod
     def Model(cls, nr_class=1, **cfg):
@@ -933,11 +951,6 @@ class TextCategorizer(Pipe):
     def labels(self, value):
         self.cfg["labels"] = tuple(value)
 
-    def __call__(self, doc):
-        scores, tensors = self.predict([doc])
-        self.set_annotations([doc], scores, tensors=tensors)
-        return doc
-
     def pipe(self, stream, batch_size=128, n_threads=-1):
         for docs in util.minibatch(stream, size=batch_size):
             docs = list(docs)
@@ -966,6 +979,9 @@ class TextCategorizer(Pipe):
 
     def update(self, docs, golds, state=None, drop=0., sgd=None, losses=None):
         self.require_model()
+        if not any(len(doc) for doc in docs):
+            # Handle cases where there are no tokens in any docs.
+            return
         scores, bp_scores = self.model.begin_update(docs, drop=drop)
         loss, d_scores = self.get_loss(docs, golds, scores)
         bp_scores(d_scores, sgd=sgd)
@@ -975,6 +991,9 @@ class TextCategorizer(Pipe):
 
     def rehearse(self, docs, drop=0., sgd=None, losses=None):
         if self._rehearsal_model is None:
+            return
+        if not any(len(doc) for doc in docs):
+            # Handle cases where there are no tokens in any docs.
             return
         scores, bp_scores = self.model.begin_update(docs, drop=drop)
         target = self._rehearsal_model(docs)
@@ -1001,6 +1020,8 @@ class TextCategorizer(Pipe):
         return float(mean_square_error), d_scores
 
     def add_label(self, label):
+        if not isinstance(label, basestring_):
+            raise ValueError(Errors.E187)
         if label in self.labels:
             return 0
         if self.model not in (None, True, False):
@@ -1018,6 +1039,10 @@ class TextCategorizer(Pipe):
         return 1
 
     def begin_training(self, get_gold_tuples=lambda: [], pipeline=None, sgd=None, **kwargs):
+        for raw_text, annot_brackets in get_gold_tuples():
+            for _, (cats, _2) in annot_brackets:
+                for cat in cats:
+                    self.add_label(cat)
         if self.model is True:
             self.cfg["pretrained_vectors"] = kwargs.get("pretrained_vectors")
             self.require_labels()
@@ -1033,8 +1058,11 @@ cdef class DependencyParser(Parser):
 
     DOCS: https://spacy.io/api/dependencyparser
     """
-
+    # cdef classes can't have decorators, so we're defining this here
     name = "parser"
+    factory = "parser"
+    assigns = ["token.dep", "token.is_sent_start", "doc.sents"]
+    requires = []
     TransitionSystem = ArcEager
 
     @property
@@ -1063,8 +1091,15 @@ cdef class DependencyParser(Parser):
 
     @property
     def labels(self):
+        labels = set()
         # Get the labels from the model by looking at the available moves
-        return tuple(set(move.split("-")[1] for move in self.move_names if "-" in move))
+        for move in self.move_names:
+            if "-" in move:
+                label = move.split("-")[1]
+                if "||" in label:
+                    label = label.split("||")[1]
+                labels.add(label)
+        return tuple(sorted(labels))
 
 
 cdef class EntityRecognizer(Parser):
@@ -1072,8 +1107,10 @@ cdef class EntityRecognizer(Parser):
 
     DOCS: https://spacy.io/api/entityrecognizer
     """
-
     name = "ner"
+    factory = "ner"
+    assigns = ["doc.ents", "token.ent_iob", "token.ent_type"]
+    requires = []
     TransitionSystem = BiluoPushDown
     nr_feature = 6
 
@@ -1099,16 +1136,21 @@ cdef class EntityRecognizer(Parser):
     def labels(self):
         # Get the labels from the model by looking at the available moves, e.g.
         # B-PERSON, I-PERSON, L-PERSON, U-PERSON
-        return tuple(set(move.split("-")[1] for move in self.move_names
-                if move[0] in ("B", "I", "L", "U")))
+        labels = set(move.split("-")[1] for move in self.move_names
+                     if move[0] in ("B", "I", "L", "U"))
+        return tuple(sorted(labels))
 
 
+@component(
+    "entity_linker",
+    requires=["doc.ents", "doc.sents", "token.ent_iob", "token.ent_type"],
+    assigns=["token.ent_kb_id"]
+)
 class EntityLinker(Pipe):
     """Pipeline component for named entity linking.
 
     DOCS: https://spacy.io/api/entitylinker
     """
-    name = 'entity_linker'
     NIL = "NIL"  # string used to refer to a non-existing link
 
     @classmethod
@@ -1152,7 +1194,6 @@ class EntityLinker(Pipe):
         return sgd
 
     def update(self, docs, golds, state=None, drop=0.0, sgd=None, losses=None):
-        # TODO: This function currently assumes that a doc is one sentence
         self.require_model()
         self.require_kb()
 
@@ -1170,23 +1211,33 @@ class EntityLinker(Pipe):
             docs = [docs]
             golds = [golds]
 
-        context_docs = []
+        sentence_docs = []
 
         for doc, gold in zip(docs, golds):
             ents_by_offset = dict()
             for ent in doc.ents:
-                ents_by_offset["{}_{}".format(ent.start_char, ent.end_char)] = ent
+                ents_by_offset[(ent.start_char, ent.end_char)] = ent
+
             for entity, kb_dict in gold.links.items():
                 start, end = entity
                 mention = doc.text[start:end]
 
+                # the gold annotations should link to proper entities - if this fails, the dataset is likely corrupt
+                if not (start, end) in ents_by_offset:
+                    raise RuntimeError(Errors.E188)
+                ent = ents_by_offset[(start, end)]
+
                 for kb_id, value in kb_dict.items():
                     # Currently only training on the positive instances
                     if value:
-                        context_docs.append(doc)
+                        try:
+                            sentence_docs.append(ent.sent.as_doc())
+                        except AttributeError:
+                            # Catch the exception when ent.sent is None and provide a user-friendly warning
+                            raise RuntimeError(Errors.E030)
 
-        context_encodings, bp_context = self.model.begin_update(context_docs, drop=drop)
-        loss, d_scores = self.get_similarity_loss(scores=context_encodings, golds=golds, docs=None)
+        sentence_encodings, bp_context = self.model.begin_update(sentence_docs, drop=drop)
+        loss, d_scores = self.get_similarity_loss(scores=sentence_encodings, golds=golds, docs=None)
         bp_context(d_scores, sgd=sgd)
 
         if losses is not None:
@@ -1307,114 +1358,135 @@ class EntityLinker(Pipe):
                     if PRINT:
                         print()
                         print("evaluating ent", self._my_print_ent(ent))
-                    # check whether this was processed before as part of a coref chain
-                    if not (ent.start_char, ent.end_char) in offsets_to_kb:
-                        # fetch the other entities coreferent to this one, and resolve all at once
-                        coref_ents = self.get_coref_cluster(ent)
-                        candidates = set()
+                    entity_count += 1
 
-                        for coref_ent in coref_ents:
-                            if PRINT:
-                                print("analysing coref ent", self._my_print_ent(coref_ent))
-                            coref_offset = (coref_ent.start_char, coref_ent.end_char)
-                            coref_cand = self.kb.get_candidates(coref_ent.text)
-                            if PRINT:
-                                print(" - these candidates:", [cand.entity_ for cand in coref_cand])
-                            candidates.update(coref_cand)
+                    to_discard = self.cfg.get("labels_discard", [])
+                    if to_discard and ent.label_ in to_discard:
+                        # ignoring this entity - setting to NIL
+                        final_kb_ids.append(self.NIL)
+                        # TODO: not sure what to do here, but we need a tensor
+                        final_tensors.append(sentence_encodings[0])
 
-                        candidates = list(candidates)
-                        if not candidates:
-                            # no prediction possible for this entity
-                            for coref_ent in coref_ents:
-                                coref_offset = (coref_ent.start_char, coref_ent.end_char)
-                                # only add the KB if this offset was tagged as an entity
-                                if coref_offset in ner_offsets:
-                                    offsets_to_kb[coref_offset] = self.NIL
-                                    entity_count += 1
-                                    corefent_sent_i = self._get_sentence_index(ent, doc)
-                                    if corefent_sent_i >= 0:
-                                        final_tensors.append(sentence_encodings[corefent_sent_i])
-                                    else:
-                                        # TODO: not sure what to do here, but we need a tensor
-                                        final_tensors.append(sentence_encodings[0])
-                        else:
-                            random.shuffle(candidates)
-                            if PRINT:
-                                print("all candidates:", [cand.entity_ for cand in candidates])
-
-                            # this will set all prior probabilities to 0 if they should be excluded from the model
-                            prior_probs = xp.asarray([c.prior_prob for c in candidates])
-                            if not self.cfg.get("incl_prior", True):
-                                prior_probs = xp.asarray([0.0 for c in candidates])
-                            scores = prior_probs
-                            if PRINT:
-                                print("prior probs", prior_probs)
-
-                            # add in similarity from the context
-                            if self.cfg.get("incl_context", True):
-                                entity_encodings = xp.asarray([c.entity_vector for c in candidates])
-                                entity_norm = xp.linalg.norm(entity_encodings, axis=1)
-
-                                if len(entity_encodings) != len(prior_probs):
-                                    raise RuntimeError(Errors.E147.format(method="predict", msg="vectors not of equal length"))
-
-                                scores_list = list()
-                                # cosine similarity, for each coreferent entity
-                                for coref_ent in coref_ents:
-                                    if PRINT:
-                                        print("resolving coref ent", self._my_print_ent(coref_ent))
-                                    corefent_sent_i = self._get_sentence_index(coref_ent, doc)
-                                    if PRINT:
-                                        print(" sent", corefent_sent_i)
-                                    if corefent_sent_i >= 0:
-                                        sentence_encoding_t = sentence_encodings_t[corefent_sent_i]
-                                        sentence_norm = sentence_norms[corefent_sent_i]
-                                        sims = xp.dot(entity_encodings, sentence_encoding_t) / (sentence_norm * entity_norm)
-                                        if PRINT:
-                                            print(" sims", sims)
-                                        # TODO: remove below to avoid conflict with master
-                                        if sims.shape != prior_probs.shape:
-                                            raise ValueError("internal inconsistency")
-                                        coref_scores = prior_probs + sims - (prior_probs*sims)
-                                        if PRINT:
-                                            print(" coref_scores", coref_scores)
-                                        scores_list.append(coref_scores)
-                                if scores_list:
-                                    if PRINT:
-                                        print("scores_list", scores_list)
-                                    for s in range(len(scores)):
-                                        coref_list = [[s_list[s]] for s_list in scores_list]
-                                        if PRINT:
-                                            print(s, coref_list)
-                                        scores[s] = max(xp.asarray(coref_list))
-                                if PRINT:
-                                    print(" best scores", scores)
-
-                            # TODO: thresholding
-                            best_index = scores.argmax()
-                            best_candidate = candidates[best_index]
-                            if PRINT:
-                                print("best_index", best_index)
-                                print("best_candidate", best_candidate.entity_)
-
-                            for coref_ent in coref_ents:
-                                coref_offset = (coref_ent.start_char, coref_ent.end_char)
-                                # only add the KB if this offset was tagged as an entity
-                                if coref_offset in ner_offsets:
-                                    offsets_to_kb[coref_offset] = best_candidate.entity_
-                                    entity_count += 1
-                                    if PRINT:
-                                        print("SET", best_candidate.entity_, "for", coref_offset)
-                                    corefent_sent_i = self._get_sentence_index(ent, doc)
-                                    if corefent_sent_i >= 0:
-                                        # should we add the encoding of this sentence, or of the best coref case ?
-                                        final_tensors.append(sentence_encodings[corefent_sent_i])
-                                    else:
-                                        # TODO: not sure what to do here, but we need a tensor
-                                        final_tensors.append(sentence_encodings[0])
                     else:
-                        if PRINT:
-                            print("already seen it")
+                        # check whether this was processed before as part of a coref chain
+                        if (ent.start_char, ent.end_char) in offsets_to_kb:
+                            if PRINT:
+                                print("already seen it")
+                        else:
+                            # fetch the other entities coreferent to this one, and resolve all at once
+                            coref_ents = self.get_coref_cluster(ent)
+                            candidates = set()
+
+                            for coref_ent in coref_ents:
+                                if not to_discard or coref_ent.label_ not in to_discard:
+                                    if PRINT:
+                                        print("analysing coref ent", self._my_print_ent(coref_ent))
+                                    coref_offset = (coref_ent.start_char, coref_ent.end_char)
+                                    coref_cand = self.kb.get_candidates(coref_ent.text)
+                                    if PRINT:
+                                        print(" - these candidates:", [cand.entity_ for cand in coref_cand])
+                                    candidates.update(coref_cand)
+
+                            candidates = list(candidates)
+
+                            if not candidates:
+                                # no prediction possible for this entity
+                                for coref_ent in coref_ents:
+                                    coref_offset = (coref_ent.start_char, coref_ent.end_char)
+                                    # only add the KB if this offset was tagged as an entity
+                                    if coref_offset in ner_offsets:
+                                        offsets_to_kb[coref_offset] = self.NIL
+                                        entity_count += 1
+                                        corefent_sent_i = self._get_sentence_index(ent, doc)
+                                        if corefent_sent_i >= 0:
+                                            final_tensors.append(sentence_encodings[corefent_sent_i])
+                                        else:
+                                            # TODO: not sure what to do here, but we need a tensor
+                                            final_tensors.append(sentence_encodings[0])
+
+                            elif len(candidates) == 1:
+                                # shortcut for efficiency reasons: take the 1 candidate
+
+                                # TODO: thresholding
+                                offsets_to_kb[coref_offset] = candidates[0].entity_
+                                final_tensors.append(sentence_encodings[0])
+
+                            else:
+                                random.shuffle(candidates)
+                                if PRINT:
+                                    print("all candidates:", [cand.entity_ for cand in candidates])
+
+
+                                # this will set all prior probabilities to 0 if they should be excluded from the model
+                                prior_probs = xp.asarray([c.prior_prob for c in candidates])
+                                if not self.cfg.get("incl_prior", True):
+                                    prior_probs = xp.asarray([0.0 for c in candidates])
+                                scores = prior_probs
+                                if PRINT:
+                                    print("prior probs", prior_probs)
+
+                                # add in similarity from the context
+                                if self.cfg.get("incl_context", True):
+                                    entity_encodings = xp.asarray([c.entity_vector for c in candidates])
+                                    entity_norm = xp.linalg.norm(entity_encodings, axis=1)
+
+                                    if len(entity_encodings) != len(prior_probs):
+                                        raise RuntimeError(Errors.E147.format(method="predict", msg="vectors not of equal length"))
+
+                                    scores_list = list()
+                                    # cosine similarity, for each coreferent entity
+                                    for coref_ent in coref_ents:
+                                        if PRINT:
+                                            print("resolving coref ent", self._my_print_ent(coref_ent))
+                                        corefent_sent_i = self._get_sentence_index(coref_ent, doc)
+                                        if PRINT:
+                                            print(" sent", corefent_sent_i)
+                                        if corefent_sent_i >= 0:
+                                            sentence_encoding_t = sentence_encodings_t[corefent_sent_i]
+                                            sentence_norm = sentence_norms[corefent_sent_i]
+                                            sims = xp.dot(entity_encodings, sentence_encoding_t) / (sentence_norm * entity_norm)
+                                            if PRINT:
+                                                print(" sims", sims)
+                                            if sims.shape != prior_probs.shape:
+                                                raise ValueError(Errors.E161)
+                                            coref_scores = prior_probs + sims - (prior_probs*sims)
+                                            if PRINT:
+                                                print(" coref_scores", coref_scores)
+                                            scores_list.append(coref_scores)
+                                    if scores_list:
+                                        if PRINT:
+                                            print("scores_list", scores_list)
+                                        for s in range(len(scores)):
+                                            coref_list = [[s_list[s]] for s_list in scores_list]
+                                            if PRINT:
+                                                print(s, coref_list)
+                                            scores[s] = max(xp.asarray(coref_list))
+                                    if PRINT:
+                                        print(" best scores", scores)
+
+                                # TODO: thresholding
+                                best_index = scores.argmax()
+                                best_candidate = candidates[best_index]
+                                if PRINT:
+                                    print("best_index", best_index)
+                                    print("best_candidate", best_candidate.entity_)
+
+                                for coref_ent in coref_ents:
+                                    coref_offset = (coref_ent.start_char, coref_ent.end_char)
+                                    # only add the KB if this offset was tagged as an entity
+                                    if coref_offset in ner_offsets:
+                                        offsets_to_kb[coref_offset] = best_candidate.entity_
+                                        entity_count += 1
+                                        if PRINT:
+                                            print("SET", best_candidate.entity_, "for", coref_offset)
+                                        corefent_sent_i = self._get_sentence_index(ent, doc)
+                                        if corefent_sent_i >= 0:
+                                            # should we add the encoding of this sentence, or of the best coref case ?
+                                            final_tensors.append(sentence_encodings[corefent_sent_i])
+                                        else:
+                                            # TODO: not sure what to do here, but we need a tensor
+                                            final_tensors.append(sentence_encodings[0])
+
             if PRINT:
                 print("found kb ids:", len(offsets_to_kb))
             for offset, kb_id in sorted(offsets_to_kb.items(), key=operator.itemgetter(0)):
@@ -1480,14 +1552,23 @@ class EntityLinker(Pipe):
         raise NotImplementedError
 
 
+@component("sentencizer", assigns=["token.is_sent_start", "doc.sents"])
 class Sentencizer(object):
     """Segment the Doc into sentences using a rule-based strategy.
 
     DOCS: https://spacy.io/api/sentencizer
     """
 
-    name = "sentencizer"
-    default_punct_chars = [".", "!", "?"]
+    default_punct_chars = ['!', '.', '?', '։', '؟', '۔', '܀', '܁', '܂', '߹',
+            '।', '॥', '၊', '။', '።', '፧', '፨', '᙮', '᜵', '᜶', '᠃', '᠉', '᥄',
+            '᥅', '᪨', '᪩', '᪪', '᪫', '᭚', '᭛', '᭞', '᭟', '᰻', '᰼', '᱾', '᱿',
+            '‼', '‽', '⁇', '⁈', '⁉', '⸮', '⸼', '꓿', '꘎', '꘏', '꛳', '꛷', '꡶',
+            '꡷', '꣎', '꣏', '꤯', '꧈', '꧉', '꩝', '꩞', '꩟', '꫰', '꫱', '꯫', '﹒',
+            '﹖', '﹗', '！', '．', '？', '𐩖', '𐩗', '𑁇', '𑁈', '𑂾', '𑂿', '𑃀',
+            '𑃁', '𑅁', '𑅂', '𑅃', '𑇅', '𑇆', '𑇍', '𑇞', '𑇟', '𑈸', '𑈹', '𑈻', '𑈼',
+            '𑊩', '𑑋', '𑑌', '𑗂', '𑗃', '𑗉', '𑗊', '𑗋', '𑗌', '𑗍', '𑗎', '𑗏', '𑗐',
+            '𑗑', '𑗒', '𑗓', '𑗔', '𑗕', '𑗖', '𑗗', '𑙁', '𑙂', '𑜼', '𑜽', '𑜾', '𑩂',
+            '𑩃', '𑪛', '𑪜', '𑱁', '𑱂', '𖩮', '𖩯', '𖫵', '𖬷', '𖬸', '𖭄', '𛲟', '𝪈']
 
     def __init__(self, punct_chars=None, **kwargs):
         """Initialize the sentencizer.
@@ -1498,7 +1579,14 @@ class Sentencizer(object):
 
         DOCS: https://spacy.io/api/sentencizer#init
         """
-        self.punct_chars = punct_chars or self.default_punct_chars
+        if punct_chars:
+            self.punct_chars = set(punct_chars)
+        else:
+            self.punct_chars = set(self.default_punct_chars)
+
+    @classmethod
+    def from_nlp(cls, nlp, **cfg):
+        return cls(**cfg)
 
     def __call__(self, doc):
         """Apply the sentencizer to a Doc and set Token.is_sent_start.
@@ -1508,20 +1596,58 @@ class Sentencizer(object):
 
         DOCS: https://spacy.io/api/sentencizer#call
         """
-        start = 0
-        seen_period = False
-        for i, token in enumerate(doc):
-            is_in_punct_chars = token.text in self.punct_chars
-            token.is_sent_start = i == 0
-            if seen_period and not token.is_punct and not is_in_punct_chars:
-                doc[start].is_sent_start = True
-                start = token.i
-                seen_period = False
-            elif is_in_punct_chars:
-                seen_period = True
-        if start < len(doc):
-            doc[start].is_sent_start = True
+        tags = self.predict([doc])
+        self.set_annotations([doc], tags)
         return doc
+
+    def pipe(self, stream, batch_size=128, n_threads=-1):
+        for docs in util.minibatch(stream, size=batch_size):
+            docs = list(docs)
+            tag_ids = self.predict(docs)
+            self.set_annotations(docs, tag_ids)
+            yield from docs
+
+    def predict(self, docs):
+        """Apply the pipeline's model to a batch of docs, without
+        modifying them.
+        """
+        if not any(len(doc) for doc in docs):
+            # Handle cases where there are no tokens in any docs.
+            guesses = [[] for doc in docs]
+            return guesses
+        guesses = []
+        for doc in docs:
+            start = 0
+            seen_period = False
+            doc_guesses = [False] * len(doc)
+            doc_guesses[0] = True
+            for i, token in enumerate(doc):
+                is_in_punct_chars = token.text in self.punct_chars
+                if seen_period and not token.is_punct and not is_in_punct_chars:
+                    doc_guesses[start] = True
+                    start = token.i
+                    seen_period = False
+                elif is_in_punct_chars:
+                    seen_period = True
+            if start < len(doc):
+                doc_guesses[start] = True
+            guesses.append(doc_guesses)
+        return guesses
+
+    def set_annotations(self, docs, batch_tag_ids, tensors=None):
+        if isinstance(docs, Doc):
+            docs = [docs]
+        cdef Doc doc
+        cdef int idx = 0
+        for i, doc in enumerate(docs):
+            doc_tag_ids = batch_tag_ids[i]
+            for j, tag_id in enumerate(doc_tag_ids):
+                # Don't clobber existing sentence boundaries
+                if doc.c[j].sent_start == 0:
+                    if tag_id:
+                        doc.c[j].sent_start = 1
+                    else:
+                        doc.c[j].sent_start = -1
 
     def to_bytes(self, **kwargs):
         """Serialize the sentencizer to a bytestring.
@@ -1530,7 +1656,7 @@ class Sentencizer(object):
 
         DOCS: https://spacy.io/api/sentencizer#to_bytes
         """
-        return srsly.msgpack_dumps({"punct_chars": self.punct_chars})
+        return srsly.msgpack_dumps({"punct_chars": list(self.punct_chars)})
 
     def from_bytes(self, bytes_data, **kwargs):
         """Load the sentencizer from a bytestring.
@@ -1541,7 +1667,7 @@ class Sentencizer(object):
         DOCS: https://spacy.io/api/sentencizer#from_bytes
         """
         cfg = srsly.msgpack_loads(bytes_data)
-        self.punct_chars = cfg.get("punct_chars", self.default_punct_chars)
+        self.punct_chars = set(cfg.get("punct_chars", self.default_punct_chars))
         return self
 
     def to_disk(self, path, exclude=tuple(), **kwargs):
@@ -1551,7 +1677,7 @@ class Sentencizer(object):
         """
         path = util.ensure_path(path)
         path = path.with_suffix(".json")
-        srsly.write_json(path, {"punct_chars": self.punct_chars})
+        srsly.write_json(path, {"punct_chars": list(self.punct_chars)})
 
 
     def from_disk(self, path, exclude=tuple(), **kwargs):
@@ -1562,8 +1688,13 @@ class Sentencizer(object):
         path = util.ensure_path(path)
         path = path.with_suffix(".json")
         cfg = srsly.read_json(path)
-        self.punct_chars = cfg.get("punct_chars", self.default_punct_chars)
+        self.punct_chars = set(cfg.get("punct_chars", self.default_punct_chars))
         return self
+
+
+# Cython classes can't be decorated, so we need to add the factories here
+Language.factories["parser"] = lambda nlp, **cfg: DependencyParser.from_nlp(nlp, **cfg)
+Language.factories["ner"] = lambda nlp, **cfg: EntityRecognizer.from_nlp(nlp, **cfg)
 
 
 __all__ = ["Tagger", "DependencyParser", "EntityRecognizer", "Tensorizer", "TextCategorizer", "EntityLinker", "Sentencizer"]

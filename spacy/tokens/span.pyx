@@ -200,13 +200,15 @@ cdef class Span:
         return Underscore(Underscore.span_extensions, self,
                           start=self.start_char, end=self.end_char)
 
-    def as_doc(self):
+    def as_doc(self, bint copy_user_data=False):
         """Create a `Doc` object with a copy of the `Span`'s data.
 
+        copy_user_data (bool): Whether or not to copy the original doc's user data.
         RETURNS (Doc): The `Doc` copy of the span.
 
         DOCS: https://spacy.io/api/span#as_doc
         """
+        # TODO: make copy_user_data a keyword-only argument (Python 3 only)
         words = [t.text for t in self]
         spaces = [bool(t.whitespace_) for t in self]
         cdef Doc doc = Doc(self.doc.vocab, words=words, spaces=spaces)
@@ -235,6 +237,8 @@ cdef class Span:
                 cat_start, cat_end, cat_label = key
                 if cat_start == self.start_char and cat_end == self.end_char:
                     doc.cats[cat_label] = value
+        if copy_user_data:
+            doc.user_data = self.doc.user_data
         return doc
 
     def _fix_dep_copy(self, attrs, array):
@@ -579,6 +583,22 @@ cdef class Span:
             return self.doc[self.start]
         else:
             return self.doc[root]
+
+    def char_span(self, int start_idx, int end_idx, label=0, kb_id=0, vector=None):
+        """Create a `Span` object from the slice `span.text[start : end]`.
+
+        start (int): The index of the first character of the span.
+        end (int): The index of the first character after the span.
+        label (uint64 or string): A label to attach to the Span, e.g. for
+            named entities.
+        kb_id (uint64 or string):  An ID from a KB to capture the meaning of a named entity.
+        vector (ndarray[ndim=1, dtype='float32']): A meaning representation of
+            the span.
+        RETURNS (Span): The newly constructed object.
+        """
+        start_idx += self.start_char
+        end_idx += self.start_char
+        return self.doc.char_span(start_idx, end_idx)
 
     @property
     def conjuncts(self):

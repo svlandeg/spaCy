@@ -1,12 +1,15 @@
 # coding: utf-8
 from __future__ import unicode_literals
 
-from bin.wiki_entity_linking.train_descriptions import EntityEncoder
-from bin.wiki_entity_linking import wikidata_processor as wd, wikipedia_processor as wp
+import logging
+
 from spacy.kb import KnowledgeBase
 
-import csv
-import datetime
+from bin.wiki_entity_linking.train_descriptions import EntityEncoder
+from bin.wiki_entity_linking import wiki_io as io
+
+
+logger = logging.getLogger(__name__)
 
 
 def create_kb(
@@ -14,52 +17,74 @@ def create_kb(
     max_entities_per_alias,
     min_entity_freq,
     min_occ,
-    entity_def_output,
-    entity_descr_output,
-    count_input,
-    prior_prob_input,
-    wikidata_input,
+    entity_def_path,
+    entity_descr_path,
+    entity_alias_path,
+    entity_freq_path,
+    prior_prob_path,
     entity_vector_length,
-    limit=None,
-    read_raw_data=True,
 ):
     # Create the knowledge base from Wikidata entries
     kb = KnowledgeBase(vocab=nlp.vocab, entity_vector_length=entity_vector_length)
+    entity_list, filtered_title_to_id = _define_entities(nlp, kb, entity_def_path, entity_descr_path, min_entity_freq, entity_freq_path, entity_vector_length)
+    _define_aliases(kb, entity_alias_path, entity_list, filtered_title_to_id, max_entities_per_alias, min_occ, prior_prob_path)
+    return kb
+
+
+def _define_entities(nlp, kb, entity_def_path, entity_descr_path, min_entity_freq, entity_freq_path, entity_vector_length):
+    # read the mappings from file
+    title_to_id = io.read_title_to_id(entity_def_path)
+    id_to_descr = io.read_id_to_descr(entity_descr_path)
 
     # check the length of the nlp vectors
     if "vectors" in nlp.meta and nlp.vocab.vectors.size:
         input_dim = nlp.vocab.vectors_length
-        print("Loaded pre-trained vectors of size %s" % input_dim)
+        logger.info("Loaded pretrained vectors of size %s" % input_dim)
     else:
         raise ValueError(
-            "The `nlp` object should have access to pre-trained word vectors, "
+            "The `nlp` object should have access to pretrained word vectors, "
             " cf. https://spacy.io/usage/models#languages."
         )
 
-    # disable this part of the pipeline when rerunning the KB generation from preprocessed files
-    if read_raw_data:
-        print()
-        print(now(), " * read wikidata entities:")
-        title_to_id, id_to_descr = wd.read_wikidata_entities_json(
-            wikidata_input, limit=limit
-        )
-
-        # write the title-ID and ID-description mappings to file
-        _write_entity_files(
-            entity_def_output, entity_descr_output, title_to_id, id_to_descr
-        )
-
-    else:
-        # read the mappings from file
-        title_to_id = get_entity_to_id(entity_def_output)
-        id_to_descr = get_id_to_description(entity_descr_output)
-
-    print()
-    print(now(), " *  get entity frequencies:")
-    print()
-    entity_frequencies = wp.get_all_frequencies(count_input=count_input)
-
+    logger.info("Filtering entities with fewer than {} mentions".format(min_entity_freq))
+    entity_frequencies = io.read_entity_to_count(entity_freq_path)
     # filter the entities for in the KB by frequency, because there's just too much data (8M entities) otherwise
+    filtered_title_to_id, entity_list, description_list, frequency_list = get_filtered_entities(
+        title_to_id,
+        id_to_descr,
+        entity_frequencies,
+        min_entity_freq
+    )
+    logger.info("Kept {} entities from the set of {}".format(len(description_list), len(title_to_id.keys())))
+
+    logger.info("Training entity encoder")
+    encoder = EntityEncoder(nlp, input_dim, entity_vector_length)
+    encoder.train(description_list=description_list, to_print=True)
+
+    logger.info("Getting entity embeddings")
+    embeddings = encoder.apply_encoder(description_list)
+
+    logger.info("Adding {} entities".format(len(entity_list)))
+    kb.set_entities(
+        entity_list=entity_list, freq_list=frequency_list, vector_list=embeddings
+    )
+    return entity_list, filtered_title_to_id
+
+
+def _define_aliases(kb, entity_alias_path, entity_list, filtered_title_to_id, max_entities_per_alias, min_occ, prior_prob_path):
+    logger.info("Adding aliases from Wikipedia and Wikidata")
+    _add_aliases(
+        kb,
+        entity_list=entity_list,
+        title_to_id=filtered_title_to_id,
+        max_entities_per_alias=max_entities_per_alias,
+        min_occ=min_occ,
+        prior_prob_path=prior_prob_path,
+    )
+
+
+def get_filtered_entities(title_to_id, id_to_descr, entity_frequencies,
+                          min_entity_freq: int = 10):
     filtered_title_to_id = dict()
     entity_list = []
     description_list = []
@@ -72,89 +97,16 @@ def create_kb(
             description_list.append(desc)
             frequency_list.append(freq)
             filtered_title_to_id[title] = entity
-
-    print(len(title_to_id.keys()), "original titles")
-    kept_nr = len(filtered_title_to_id.keys())
-    print("kept", kept_nr, "entities with min. frequency", min_entity_freq)
-
-    print()
-    print(now(), " * train entity encoder:")
-    print()
-    encoder = EntityEncoder(nlp, input_dim, entity_vector_length)
-    encoder.train(description_list=description_list, to_print=True)
-
-    print()
-    print(now(), " * get entity embeddings:")
-    print()
-    embeddings = encoder.apply_encoder(description_list)
-
-    print(now(), " * adding", len(entity_list), "entities")
-    kb.set_entities(
-        entity_list=entity_list, freq_list=frequency_list, vector_list=embeddings
-    )
-
-    alias_cnt = _add_aliases(
-        kb,
-        title_to_id=filtered_title_to_id,
-        max_entities_per_alias=max_entities_per_alias,
-        min_occ=min_occ,
-        prior_prob_input=prior_prob_input,
-    )
-    print()
-    print(now(), " * adding", alias_cnt, "aliases")
-    print()
-
-    print()
-    print("# of entities in kb:", kb.get_size_entities())
-    print("# of aliases in kb:", kb.get_size_aliases())
-
-    print(now(), "Done with kb")
-    return kb
+    return filtered_title_to_id, entity_list, description_list, frequency_list
 
 
-def _write_entity_files(
-    entity_def_output, entity_descr_output, title_to_id, id_to_descr
-):
-    with entity_def_output.open("w", encoding="utf8") as id_file:
-        id_file.write("WP_title" + "|" + "WD_id" + "\n")
-        for title, qid in title_to_id.items():
-            id_file.write(title + "|" + str(qid) + "\n")
-
-    with entity_descr_output.open("w", encoding="utf8") as descr_file:
-        descr_file.write("WD_id" + "|" + "description" + "\n")
-        for qid, descr in id_to_descr.items():
-            descr_file.write(str(qid) + "|" + descr + "\n")
-
-
-def get_entity_to_id(entity_def_output):
-    entity_to_id = dict()
-    with entity_def_output.open("r", encoding="utf8") as csvfile:
-        csvreader = csv.reader(csvfile, delimiter="|")
-        # skip header
-        next(csvreader)
-        for row in csvreader:
-            entity_to_id[row[0]] = row[1]
-    return entity_to_id
-
-
-def get_id_to_description(entity_descr_output):
-    id_to_desc = dict()
-    with entity_descr_output.open("r", encoding="utf8") as csvfile:
-        csvreader = csv.reader(csvfile, delimiter="|")
-        # skip header
-        next(csvreader)
-        for row in csvreader:
-            id_to_desc[row[0]] = row[1]
-    return id_to_desc
-
-
-def _add_aliases(kb, title_to_id, max_entities_per_alias, min_occ, prior_prob_input):
+def _add_aliases(kb, entity_list, title_to_id, max_entities_per_alias, min_occ, prior_prob_path):
     wp_titles = title_to_id.keys()
-    cnt = 0
 
     # adding aliases with prior probabilities
     # we can read this file sequentially, it's sorted by alias, and then by count
-    with prior_prob_input.open("r", encoding="utf8") as prior_file:
+    logger.info("Adding WP aliases")
+    with prior_prob_path.open("r", encoding="utf8") as prior_file:
         # skip header
         prior_file.readline()
         line = prior_file.readline()
@@ -187,9 +139,8 @@ def _add_aliases(kb, title_to_id, max_entities_per_alias, min_occ, prior_prob_in
                                 entities=selected_entities,
                                 probabilities=prior_probs,
                             )
-                            cnt += 1
                         except ValueError as e:
-                            print(e)
+                            logger.error(e)
                 total_count = 0
                 counts = []
                 entities = []
@@ -202,8 +153,9 @@ def _add_aliases(kb, title_to_id, max_entities_per_alias, min_occ, prior_prob_in
             previous_alias = new_alias
 
             line = prior_file.readline()
-    return cnt
 
 
-def now():
-    return datetime.datetime.now()
+def read_kb(nlp, kb_file):
+    kb = KnowledgeBase(vocab=nlp.vocab)
+    kb.load_bulk(kb_file)
+    return kb

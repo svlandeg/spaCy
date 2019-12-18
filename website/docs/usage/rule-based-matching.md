@@ -90,7 +90,7 @@ the pattern is not going to produce any results. When developing complex
 patterns, make sure to check examples against spaCy's tokenization:
 
 ```python
-doc = nlp(u"A complex-example,!")
+doc = nlp("A complex-example,!")
 print([token.text for token in doc])
 ```
 
@@ -113,7 +113,7 @@ matcher = Matcher(nlp.vocab)
 pattern = [{"LOWER": "hello"}, {"IS_PUNCT": True}, {"LOWER": "world"}]
 matcher.add("HelloWorld", None, pattern)
 
-doc = nlp(u"Hello, world! Hello world!")
+doc = nlp("Hello, world! Hello world!")
 matches = matcher(doc)
 for match_id, start, end in matches:
     string_id = nlp.vocab.strings[match_id]  # Get string representation
@@ -163,7 +163,7 @@ rule-based matching are:
 | `TEXT` <Tag variant="new">2.1</Tag>    | unicode | The exact verbatim text of a token.                                                                    |
 | `LOWER`                                | unicode | The lowercase form of the token text.                                                                  |
 |  `LENGTH`                              | int     | The length of the token text.                                                                          |
-|  `IS_ALPHA`, `IS_ASCII`, `IS_DIGIT`    | bool    | Token text consists of alphanumeric characters, ASCII characters, digits.                              |
+|  `IS_ALPHA`, `IS_ASCII`, `IS_DIGIT`    | bool    | Token text consists of alphabetic characters, ASCII characters, digits.                                |
 |  `IS_LOWER`, `IS_UPPER`, `IS_TITLE`    | bool    | Token text is in lowercase, uppercase, titlecase.                                                      |
 |  `IS_PUNCT`, `IS_SPACE`, `IS_STOP`     | bool    | Token is punctuation, whitespace, stop word.                                                           |
 |  `LIKE_NUM`, `LIKE_URL`, `LIKE_EMAIL`  | bool    | Token text resembles a number, URL, email.                                                             |
@@ -447,7 +447,7 @@ def add_event_ent(matcher, doc, i, matches):
 
 pattern = [{"ORTH": "Google"}, {"ORTH": "I"}, {"ORTH": "/"}, {"ORTH": "O"}]
 matcher.add("GoogleIO", add_event_ent, pattern)
-doc = nlp(u"This is a text about Google I/O")
+doc = nlp("This is a text about Google I/O")
 matches = matcher(doc)
 ```
 
@@ -539,7 +539,7 @@ class BadHTMLMerger(object):
 nlp = spacy.load("en_core_web_sm")
 html_merger = BadHTMLMerger(nlp)
 nlp.add_pipe(html_merger, last=True)  # Add component to the pipeline
-doc = nlp(u"Hello<br>world! <br/> This is a test.")
+doc = nlp("Hello<br>world! <br/> This is a test.")
 for token in doc:
     print(token.text, token._.bad_html)
 
@@ -617,7 +617,7 @@ def collect_sents(matcher, doc, i, matches):
 pattern = [{"LOWER": "facebook"}, {"LEMMA": "be"}, {"POS": "ADV", "OP": "*"},
            {"POS": "ADJ"}]
 matcher.add("FacebookIs", collect_sents, pattern)  # add pattern
-doc = nlp(u"I'd say that Facebook is evil. – Facebook is pretty cool, right?")
+doc = nlp("I'd say that Facebook is evil. – Facebook is pretty cool, right?")
 matches = matcher(doc)
 
 # Serve visualization of sentences containing match with displaCy
@@ -638,7 +638,7 @@ punctuation – depending on the
 
 The `IS_DIGIT` flag is not very helpful here, because it doesn't tell us
 anything about the length. However, you can use the `SHAPE` flag, with each `d`
-representing a digit:
+representing a digit (up to 4 digits / characters):
 
 ```python
 [{"ORTH": "("}, {"SHAPE": "ddd"}, {"ORTH": ")"}, {"SHAPE": "dddd"},
@@ -654,7 +654,7 @@ match the most common formats of
 
 ```python
 [{"ORTH": "+"}, {"ORTH": "49"}, {"ORTH": "(", "OP": "?"}, {"SHAPE": "dddd"},
- {"ORTH": ")", "OP": "?"}, {"SHAPE": "dddddd"}]
+ {"ORTH": ")", "OP": "?"}, {"SHAPE": "dddd", "LENGTH": 6}]
 ```
 
 Depending on the formats your application needs to match, creating an extensive
@@ -673,7 +673,7 @@ pattern = [{"ORTH": "("}, {"SHAPE": "ddd"}, {"ORTH": ")"}, {"SHAPE": "ddd"},
            {"ORTH": "-", "OP": "?"}, {"SHAPE": "ddd"}]
 matcher.add("PHONE_NUMBER", None, pattern)
 
-doc = nlp(u"Call me at (123) 456 789 or (123) 456 789!")
+doc = nlp("Call me at (123) 456 789 or (123) 456 789!")
 print([t.text for t in doc])
 matches = matcher(doc)
 for match_id, start, end in matches:
@@ -719,8 +719,8 @@ from spacy.matcher import Matcher
 nlp = English()  # We only want the tokenizer, so no need to load a model
 matcher = Matcher(nlp.vocab)
 
-pos_emoji = [u"😀", u"😃", u"😂", u"🤣", u"😊", u"😍"]  # Positive emoji
-neg_emoji = [u"😞", u"😠", u"😩", u"😢", u"😭", u"😒"]  # Negative emoji
+pos_emoji = ["😀", "😃", "😂", "🤣", "😊", "😍"]  # Positive emoji
+neg_emoji = ["😞", "😠", "😩", "😢", "😭", "😒"]  # Negative emoji
 
 # Add patterns to match one or more emoji tokens
 pos_patterns = [[{"ORTH": emoji}] for emoji in pos_emoji]
@@ -740,7 +740,7 @@ matcher.add("SAD", label_sentiment, *neg_patterns)  # Add negative pattern
 # Add pattern for valid hashtag, i.e. '#' plus any ASCII token
 matcher.add("HASHTAG", None, [{"ORTH": "#"}, {"IS_ASCII": True}])
 
-doc = nlp(u"Hello world 😀 #MondayMotivation")
+doc = nlp("Hello world 😀 #MondayMotivation")
 matches = matcher(doc)
 for match_id, start, end in matches:
     string_id = doc.vocab.strings[match_id]  # Look up string ID
@@ -797,7 +797,7 @@ matcher.add("HASHTAG", None, [{"ORTH": "#"}, {"IS_ASCII": True}])
 # Register token extension
 Token.set_extension("is_hashtag", default=False)
 
-doc = nlp(u"Hello world 😀 #MondayMotivation")
+doc = nlp("Hello world 😀 #MondayMotivation")
 matches = matcher(doc)
 hashtags = []
 for match_id, start, end in matches:
@@ -838,13 +838,13 @@ from spacy.matcher import PhraseMatcher
 
 nlp = spacy.load('en_core_web_sm')
 matcher = PhraseMatcher(nlp.vocab)
-terms = [u"Barack Obama", u"Angela Merkel", u"Washington, D.C."]
+terms = ["Barack Obama", "Angela Merkel", "Washington, D.C."]
 # Only run nlp.make_doc to speed things up
 patterns = [nlp.make_doc(text) for text in terms]
 matcher.add("TerminologyList", None, *patterns)
 
-doc = nlp(u"German Chancellor Angela Merkel and US President Barack Obama "
-          u"converse in the Oval Office inside the White House in Washington, D.C.")
+doc = nlp("German Chancellor Angela Merkel and US President Barack Obama "
+          "converse in the Oval Office inside the White House in Washington, D.C.")
 matches = matcher(doc)
 for match_id, start, end in matches:
     span = doc[start:end]
@@ -853,8 +853,8 @@ for match_id, start, end in matches:
 
 Since spaCy is used for processing both the patterns and the text to be matched,
 you won't have to worry about specific tokenization – for example, you can
-simply pass in `nlp(u"Washington, D.C.")` and won't have to write a complex
-token pattern covering the exact tokenization of the term.
+simply pass in `nlp("Washington, D.C.")` and won't have to write a complex token
+pattern covering the exact tokenization of the term.
 
 <Infobox title="Important note on creating patterns" variant="warning">
 
@@ -889,10 +889,10 @@ from spacy.matcher import PhraseMatcher
 
 nlp = English()
 matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
-patterns = [nlp.make_doc(name) for name in [u"Angela Merkel", u"Barack Obama"]]
+patterns = [nlp.make_doc(name) for name in ["Angela Merkel", "Barack Obama"]]
 matcher.add("Names", None, *patterns)
 
-doc = nlp(u"angela merkel and us president barack Obama")
+doc = nlp("angela merkel and us president barack Obama")
 for match_id, start, end in matcher(doc):
     print("Matched based on lowercase token text:", doc[start:end])
 ```
@@ -924,9 +924,9 @@ from spacy.matcher import PhraseMatcher
 
 nlp = English()
 matcher = PhraseMatcher(nlp.vocab, attr="SHAPE")
-matcher.add("IP", None, nlp(u"127.0.0.1"), nlp(u"127.127.0.0"))
+matcher.add("IP", None, nlp("127.0.0.1"), nlp("127.127.0.0"))
 
-doc = nlp(u"Often the router will have an IP address such as 192.168.1.1 or 192.168.2.1.")
+doc = nlp("Often the router will have an IP address such as 192.168.1.1 or 192.168.2.1.")
 for match_id, start, end in matcher(doc):
     print("Matched based on token shape:", doc[start:end])
 ```
@@ -982,7 +982,7 @@ patterns = [{"label": "ORG", "pattern": "Apple"},
 ruler.add_patterns(patterns)
 nlp.add_pipe(ruler)
 
-doc = nlp(u"Apple is opening its first big office in San Francisco.")
+doc = nlp("Apple is opening its first big office in San Francisco.")
 print([(ent.text, ent.label_) for ent in doc.ents])
 ```
 
@@ -1006,7 +1006,7 @@ patterns = [{"label": "ORG", "pattern": "MyCorp Inc."}]
 ruler.add_patterns(patterns)
 nlp.add_pipe(ruler)
 
-doc = nlp(u"MyCorp Inc. is a company in the U.S.")
+doc = nlp("MyCorp Inc. is a company in the U.S.")
 print([(ent.text, ent.label_) for ent in doc.ents])
 ```
 
@@ -1019,6 +1019,37 @@ The `EntityRuler` can validate patterns against a JSON schema with the option
 ```python
 ruler = EntityRuler(nlp, validate=True)
 ```
+
+### Adding IDs to patterns {#entityruler-ent-ids new="2.2.2"}
+
+The [`EntityRuler`](/api/entityruler) can also accept an `id` attribute for each
+pattern. Using the `id` attribute allows multiple patterns to be associated with
+the same entity.
+
+```python
+### {executable="true"}
+from spacy.lang.en import English
+from spacy.pipeline import EntityRuler
+
+nlp = English()
+ruler = EntityRuler(nlp)
+patterns = [{"label": "ORG", "pattern": "Apple", "id": "apple"},
+            {"label": "GPE", "pattern": [{"LOWER": "san"}, {"LOWER": "francisco"}], "id": "san-francisco"},
+            {"label": "GPE", "pattern": [{"LOWER": "san"}, {"LOWER": "fran"}], "id": "san-francisco"}]
+ruler.add_patterns(patterns)
+nlp.add_pipe(ruler)
+
+doc1 = nlp("Apple is opening its first big office in San Francisco.")
+print([(ent.text, ent.label_, ent.ent_id_) for ent in doc1.ents])
+
+doc2 = nlp("Apple is opening its first big office in San Fran.")
+print([(ent.text, ent.label_, ent.ent_id_) for ent in doc2.ents])
+```
+
+If the `id` attribute is included in the [`EntityRuler`](/api/entityruler)
+patterns, the `ent_id_` property of the matched entity is set to the `id` given
+in the patterns. So in the example above it's easy to identify that "San
+Francisco" and "San Fran" are both the same entity.
 
 ### Using pattern files {#entityruler-files}
 
@@ -1078,7 +1109,7 @@ order to implement more abstract logic.
 
 ### Example: Expanding named entities {#models-rules-ner}
 
-When using the a pre-trained
+When using the a pretrained
 [named entity recognition](/usage/linguistic-features/#named-entities) model to
 extract information from your texts, you may find that the predicted span only
 includes parts of the entity you're looking for. Sometimes, this happens if
@@ -1135,6 +1166,8 @@ def expand_person_entities(doc):
             if prev_token.text in ("Dr", "Dr.", "Mr", "Mr.", "Ms", "Ms."):
                 new_ent = Span(doc, ent.start - 1, ent.end, label=ent.label)
                 new_ents.append(new_ent)
+            else:
+                new_ents.append(ent)
         else:
             new_ents.append(ent)
     doc.ents = new_ents

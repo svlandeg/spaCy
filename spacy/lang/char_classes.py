@@ -11,6 +11,12 @@ _hebrew = r"\u0591-\u05F4\uFB1D-\uFB4F"
 
 _hindi = r"\u0900-\u097F"
 
+_kannada = r"\u0C80-\u0CFF"
+
+_tamil = r"\u0B80-\u0BFF"
+
+_telugu = r"\u0C00-\u0C7F"
+
 # Latin standard
 _latin_u_standard = r"A-Z"
 _latin_l_standard = r"a-z"
@@ -24,6 +30,10 @@ _latin_standard_fullwidth = _latin_u_standard_fullwidth + _latin_l_standard_full
 _latin_u_supplement = r"\u00C0-\u00D6\u00D8-\u00DE"
 _latin_l_supplement = r"\u00DF-\u00F6\u00F8-\u00FF"
 _latin_supplement = r"\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF"
+
+_hangul_syllables = r"\uAC00-\uD7AF"
+_hangul_jamo = r"\u1100-\u11FF"
+_hangul = _hangul_syllables + _hangul_jamo
 
 # letters with diacritics - Catalan, Czech, Latin, Latvian, Lithuanian, Polish, Slovak, Turkish, Welsh
 _latin_u_extendedA = (
@@ -178,7 +188,7 @@ _russian_lower = r"ёа-я"
 _russian_upper = r"ЁА-Я"
 _russian = r"ёа-яЁА-Я"
 
-_sinhala = r"\u0D85-\u0D96\u0D9A-\u0DB1\u0DB3-\u0DBB\u0DBD\u0DC0-\u0DC6"
+_sinhala = r"\u0D80-\u0DFF"
 
 _tatar_lower = r"әөүҗңһ"
 _tatar_upper = r"ӘӨҮҖҢҺ"
@@ -195,7 +205,17 @@ _ukrainian = r"а-щюяіїєґА-ЩЮЯІЇЄҐ"
 _upper = LATIN_UPPER + _russian_upper + _tatar_upper + _greek_upper + _ukrainian_upper
 _lower = LATIN_LOWER + _russian_lower + _tatar_lower + _greek_lower + _ukrainian_lower
 
-_uncased = _bengali + _hebrew + _persian + _sinhala + _hindi
+_uncased = (
+    _bengali
+    + _hebrew
+    + _persian
+    + _sinhala
+    + _hindi
+    + _kannada
+    + _tamil
+    + _telugu
+    + _hangul
+)
 
 ALPHA = group_chars(LATIN + _russian + _tatar + _greek + _ukrainian + _uncased)
 ALPHA_LOWER = group_chars(_lower + _uncased)

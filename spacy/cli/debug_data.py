@@ -34,12 +34,6 @@ BLANK_MODEL_THRESHOLD = 2000
         str,
     ),
     ignore_warnings=("Ignore warnings, only show stats and errors", "flag", "IW", bool),
-    ignore_validation=(
-        "Don't exit if JSON format validation fails",
-        "flag",
-        "IV",
-        bool,
-    ),
     verbose=("Print additional information and explanations", "flag", "V", bool),
     no_format=("Don't pretty-print the results", "flag", "NF", bool),
 )
@@ -50,10 +44,14 @@ def debug_data(
     base_model=None,
     pipeline="tagger,parser,ner",
     ignore_warnings=False,
-    ignore_validation=False,
     verbose=False,
     no_format=False,
 ):
+    """
+    Analyze, debug and validate your training and development data, get useful
+    stats, and find problems like invalid entity annotations, cyclic
+    dependencies, low data labels and more.
+    """
     msg = Printer(pretty=not no_format, ignore_warnings=ignore_warnings)
 
     # Make sure all files and paths exists if they are needed
@@ -72,21 +70,9 @@ def debug_data(
 
     msg.divider("Data format validation")
 
-    # Validate data format using the JSON schema
+    # TODO: Validate data format using the JSON schema
     # TODO: update once the new format is ready
     # TODO: move validation to GoldCorpus in order to be able to load from dir
-    train_data_errors = []  # TODO: validate_json
-    dev_data_errors = []  # TODO: validate_json
-    if not train_data_errors:
-        msg.good("Training data JSON format is valid")
-    if not dev_data_errors:
-        msg.good("Development data JSON format is valid")
-    for error in train_data_errors:
-        msg.fail("Training data: {}".format(error))
-    for error in dev_data_errors:
-        msg.fail("Develoment data: {}".format(error))
-    if (train_data_errors or dev_data_errors) and not ignore_validation:
-        sys.exit(1)
 
     # Create the gold corpus to be able to better analyze data
     loading_train_error_message = ""
@@ -135,6 +121,8 @@ def debug_data(
     msg.text("{} training docs".format(len(train_docs)))
     msg.text("{} evaluation docs".format(len(dev_docs)))
 
+    if not len(dev_docs):
+        msg.fail("No evaluation docs")
     overlap = len(train_texts.intersection(dev_texts))
     if overlap:
         msg.warn("{} training examples also in evaluation data".format(overlap))
@@ -220,6 +208,9 @@ def debug_data(
                 missing_values, "value" if missing_values == 1 else "values"
             )
         )
+        for label in new_labels:
+            if len(label) == 0:
+                msg.fail("Empty label found in new labels")
         if new_labels:
             labels_with_counts = [
                 (label, count)
@@ -284,7 +275,7 @@ def debug_data(
 
     if "textcat" in pipeline:
         msg.divider("Text Classification")
-        labels = [label for label in gold_train_data["textcat"]]
+        labels = [label for label in gold_train_data["cats"]]
         model_labels = _get_labels_from_model(nlp, "textcat")
         new_labels = [l for l in labels if l not in model_labels]
         existing_labels = [l for l in labels if l in model_labels]
@@ -295,13 +286,45 @@ def debug_data(
         )
         if new_labels:
             labels_with_counts = _format_labels(
-                gold_train_data["textcat"].most_common(), counts=True
+                gold_train_data["cats"].most_common(), counts=True
             )
             msg.text("New: {}".format(labels_with_counts), show=verbose)
         if existing_labels:
             msg.text(
                 "Existing: {}".format(_format_labels(existing_labels)), show=verbose
             )
+        if set(gold_train_data["cats"]) != set(gold_dev_data["cats"]):
+            msg.fail(
+                "The train and dev labels are not the same. "
+                "Train labels: {}. "
+                "Dev labels: {}.".format(
+                    _format_labels(gold_train_data["cats"]),
+                    _format_labels(gold_dev_data["cats"]),
+                )
+            )
+        if gold_train_data["n_cats_multilabel"] > 0:
+            msg.info(
+                "The train data contains instances without "
+                "mutually-exclusive classes. Use '--textcat-multilabel' "
+                "when training."
+            )
+            if gold_dev_data["n_cats_multilabel"] == 0:
+                msg.warn(
+                    "Potential train/dev mismatch: the train data contains "
+                    "instances without mutually-exclusive classes while the "
+                    "dev data does not."
+                )
+        else:
+            msg.info(
+                "The train data contains only instances with "
+                "mutually-exclusive classes."
+            )
+            if gold_dev_data["n_cats_multilabel"] > 0:
+                msg.fail(
+                    "Train/dev mismatch: the dev data contains instances "
+                    "without mutually-exclusive classes while the train data "
+                    "contains only instances with mutually-exclusive classes."
+                )
 
     if "tagger" in pipeline:
         msg.divider("Part-of-speech Tagging")
@@ -330,6 +353,7 @@ def debug_data(
             )
 
     if "parser" in pipeline:
+        has_low_data_warning = False
         msg.divider("Dependency Parsing")
 
         # profile sentence length
@@ -340,6 +364,16 @@ def debug_data(
                 gold_train_data["n_words"] / gold_train_data["n_sents"],
             )
         )
+
+        # check for documents with multiple sentences
+        sents_per_doc = gold_train_data["n_sents"] / len(gold_train_data["texts"])
+        if sents_per_doc < 1.1:
+            msg.warn(
+                "The training data contains {:.2f} sentences per "
+                "document. When there are very few documents containing more "
+                "than one sentence, the parser will not learn how to segment "
+                "longer texts into sentences.".format(sents_per_doc)
+            )
 
         # profile labels
         labels_train = [label for label in gold_train_data["deps"]]
@@ -518,6 +552,7 @@ def _compile_gold(train_docs, pipeline):
         "n_sents": 0,
         "n_nonproj": 0,
         "n_cycles": 0,
+        "n_cats_multilabel": 0,
         "texts": set(),
     }
     for doc, gold in train_docs:
@@ -540,6 +575,8 @@ def _compile_gold(train_docs, pipeline):
                     data["ner"]["-"] += 1
         if "textcat" in pipeline:
             data["cats"].update(gold.cats)
+            if list(gold.cats.values()).count(1.0) != 1:
+                data["n_cats_multilabel"] += 1
         if "tagger" in pipeline:
             data["tags"].update([x for x in gold.tags if x is not None])
         if "parser" in pipeline:

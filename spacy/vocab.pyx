@@ -3,7 +3,6 @@
 from __future__ import unicode_literals
 from libc.string cimport memcpy
 
-import numpy
 import srsly
 from collections import OrderedDict
 from thinc.neural.util import get_array_module
@@ -18,10 +17,10 @@ from .structs cimport SerializedLexemeC
 from .compat import copy_reg, basestring_
 from .errors import Errors
 from .lemmatizer import Lemmatizer
-from .lookups import Lookups
 from .attrs import intify_attrs, NORM
 from .vectors import Vectors
 from ._ml import link_vectors_to_models
+from .lookups import Lookups
 from . import util
 
 
@@ -33,7 +32,8 @@ cdef class Vocab:
     DOCS: https://spacy.io/api/vocab
     """
     def __init__(self, lex_attr_getters=None, tag_map=None, lemmatizer=None,
-                 strings=tuple(), lookups=None, oov_prob=-20., **deprecated_kwargs):
+                 strings=tuple(), lookups=None, oov_prob=-20., vectors_name=None,
+                 **deprecated_kwargs):
         """Create the vocabulary.
 
         lex_attr_getters (dict): A dictionary mapping attribute IDs to
@@ -44,14 +44,15 @@ cdef class Vocab:
         strings (StringStore): StringStore that maps strings to integers, and
             vice versa.
         lookups (Lookups): Container for large lookup tables and dictionaries.
+        name (unicode): Optional name to identify the vectors table.
         RETURNS (Vocab): The newly constructed object.
         """
         lex_attr_getters = lex_attr_getters if lex_attr_getters is not None else {}
         tag_map = tag_map if tag_map is not None else {}
-        if lemmatizer in (None, True, False):
-            lemmatizer = Lemmatizer({}, {}, {})
         if lookups in (None, True, False):
             lookups = Lookups()
+        if lemmatizer in (None, True, False):
+            lemmatizer = Lemmatizer(lookups)
         self.cfg = {'oov_prob': oov_prob}
         self.mem = Pool()
         self._by_orth = PreshMap()
@@ -62,7 +63,7 @@ cdef class Vocab:
                 _ = self[string]
         self.lex_attr_getters = lex_attr_getters
         self.morphology = Morphology(self.strings, tag_map, lemmatizer)
-        self.vectors = Vectors()
+        self.vectors = Vectors(name=vectors_name)
         self.lookups = lookups
 
     @property
@@ -318,14 +319,14 @@ cdef class Vocab:
         keys = xp.asarray([key for (prob, i, key) in priority], dtype="uint64")
         keep = xp.ascontiguousarray(self.vectors.data[indices[:nr_row]])
         toss = xp.ascontiguousarray(self.vectors.data[indices[nr_row:]])
-        self.vectors = Vectors(data=keep, keys=keys)
+        self.vectors = Vectors(data=keep, keys=keys, name=self.vectors.name)
         syn_keys, syn_rows, scores = self.vectors.most_similar(toss, batch_size=batch_size)
         remap = {}
         for i, key in enumerate(keys[nr_row:]):
-            self.vectors.add(key, row=syn_rows[i])
+            self.vectors.add(key, row=syn_rows[i][0])
             word = self.strings[key]
-            synonym = self.strings[syn_keys[i]]
-            score = scores[i]
+            synonym = self.strings[syn_keys[i][0]]
+            score = scores[i][0]
             remap[word] = (synonym, score)
         link_vectors_to_models(self)
         return remap
@@ -334,7 +335,15 @@ cdef class Vocab:
         """Retrieve a vector for a word in the vocabulary. Words can be looked
         up by string or int ID. If no vectors data is loaded, ValueError is
         raised.
+        
+        If `minn` is defined, then the resulting vector uses Fasttext's 
+        subword features by average over ngrams of `orth`.
 
+        orth (int / unicode): The hash value of a word, or its unicode string.
+        minn (int): Minimum n-gram length used for Fasttext's ngram computation. 
+            Defaults to the length of `orth`.
+        maxn (int): Maximum n-gram length used for Fasttext's ngram computation. 
+            Defaults to the length of `orth`.
         RETURNS (numpy.ndarray): A word vector. Size
             and shape determined by the `vocab.vectors` instance. Usually, a
             numpy ndarray of shape (300,) and dtype float32.
@@ -351,7 +360,8 @@ cdef class Vocab:
             minn = len(word)
         if maxn is None:
             maxn = len(word)
-        vectors = numpy.zeros((self.vectors_length,), dtype="f")
+        xp = get_array_module(self.vectors.data)
+        vectors = xp.zeros((self.vectors_length,), dtype="f")
         # Fasttext's ngram computation taken from
         # https://github.com/facebookresearch/fastText
         ngrams_size = 0;
@@ -371,7 +381,7 @@ cdef class Vocab:
                     j = j + 1
                 if (n >= minn and not (n == 1 and (i == 0 or j == len(word)))):
                     if self.strings[ngram] in self.vectors.key2row:
-                        vectors = numpy.add(self.vectors[self.strings[ngram]],vectors)
+                        vectors = xp.add(self.vectors[self.strings[ngram]], vectors)
                         ngrams_size += 1
                 n = n + 1
         if ngrams_size > 0:

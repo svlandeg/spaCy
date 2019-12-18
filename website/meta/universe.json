@@ -1,6 +1,26 @@
 {
     "resources": [
         {
+            "id": "spacy-server",
+            "title": "spaCy Server",
+            "slogan": "\uD83E\uDD9C Containerized HTTP API for spaCy NLP",
+            "description": "For developers who need programming language agnostic NLP, spaCy Server is a containerized HTTP API that provides industrial-strength natural language processing. Unlike other servers, our server is fast, idiomatic, and well documented.",
+            "github": "neelkamath/spacy-server",
+            "code_example": [
+                "docker run --rm -dp 8080:8080 neelkamath/spacy-server",
+                "curl http://localhost:8080/ner -H 'Content-Type: application/json' -d '{\"sections\": [\"My name is John Doe. I grew up in California.\"]}'"
+            ],
+            "code_language": "shell",
+            "url": "https://hub.docker.com/r/neelkamath/spacy-server",
+            "author": "Neel Kamath",
+            "author_links": {
+                "github": "neelkamath",
+                "website": "https://neelkamath.com"
+            },
+            "category": ["apis"],
+            "tags": ["docker"]
+        },
+        {
             "id": "nlp-architect",
             "title": "NLP Architect",
             "slogan": "Python lib for exploring Deep NLP & NLU by Intel AI",
@@ -119,14 +139,14 @@
                 "emoji = Emoji(nlp)",
                 "nlp.add_pipe(emoji, first=True)",
                 "",
-                "doc = nlp(u'This is a test 😻 👍🏿')",
+                "doc = nlp('This is a test 😻 👍🏿')",
                 "assert doc._.has_emoji == True",
                 "assert doc[2:5]._.has_emoji == True",
                 "assert doc[0]._.is_emoji == False",
                 "assert doc[4]._.is_emoji == True",
-                "assert doc[5]._.emoji_desc == u'thumbs up dark skin tone'",
+                "assert doc[5]._.emoji_desc == 'thumbs up dark skin tone'",
                 "assert len(doc._.emoji) == 2",
-                "assert doc._.emoji[1] == (u'👍🏿', 5, u'thumbs up dark skin tone')"
+                "assert doc._.emoji[1] == ('👍🏿', 5, 'thumbs up dark skin tone')"
             ],
             "author": "Ines Montani",
             "author_links": {
@@ -432,17 +452,21 @@
         {
             "id": "neuralcoref",
             "slogan": "State-of-the-art coreference resolution based on neural nets and spaCy",
-            "description": "This coreference resolution module is based on the super fast [spaCy](https://spacy.io/) parser and uses the neural net scoring model described in [Deep Reinforcement Learning for Mention-Ranking Coreference Models](http://cs.stanford.edu/people/kevclark/resources/clark-manning-emnlp2016-deep.pdf) by Kevin Clark and Christopher D. Manning, EMNLP 2016. With ✨Neuralcoref v2.0, you should now be able to train  the coreference resolution system on your own dataset — e.g., another language than English! — **provided you have an annotated dataset**.",
+            "description": "This coreference resolution module is based on the super fast [spaCy](https://spacy.io/) parser and uses the neural net scoring model described in [Deep Reinforcement Learning for Mention-Ranking Coreference Models](http://cs.stanford.edu/people/kevclark/resources/clark-manning-emnlp2016-deep.pdf) by Kevin Clark and Christopher D. Manning, EMNLP 2016. Since ✨Neuralcoref v2.0, you can train the coreference resolution system on your own dataset — e.g., another language than English! — **provided you have an annotated dataset**. Note that to use neuralcoref with spaCy > 2.1.0, you'll have to install neuralcoref from source.",
             "github": "huggingface/neuralcoref",
             "thumb": "https://i.imgur.com/j6FO9O6.jpg",
             "code_example": [
-                "from neuralcoref import Coref",
+                "import spacy",
+                "import neuralcoref",
                 "",
-                "coref = Coref()",
-                "clusters = coref.one_shot_coref(utterances=u\"She loves him.\", context=u\"My sister has a dog.\")",
-                "mentions = coref.get_mentions()",
-                "utterances = coref.get_utterances()",
-                "resolved_utterance_text = coref.get_resolved_utterances()"
+                "nlp = spacy.load('en')",
+                "neuralcoref.add_to_pipe(nlp)",
+                "doc1 = nlp('My sister has a dog. She loves him.')",
+                "print(doc1._.coref_clusters)",
+                "",
+                "doc2 = nlp('Angela lives in Boston. She is quite happy in that city.')",
+                "for ent in doc2.ents:",
+                "    print(ent._.coref_cluster)"
             ],
             "author": "Hugging Face",
             "author_links": {
@@ -574,13 +598,13 @@
         },
         {
             "id": "rasa",
-            "title": "Rasa NLU",
+            "title": "Rasa",
             "slogan": "Turn natural language into structured data",
-            "description": "Rasa NLU (Natural Language Understanding) is a tool for understanding what is being said in short pieces of text. Rasa NLU is primarily used to build chatbots and voice apps, where this is called intent classification and entity extraction. To use Rasa, *you have to provide some training data*.",
-            "github": "RasaHQ/rasa_nlu",
-            "pip": "rasa_nlu",
-            "thumb": "https://i.imgur.com/ndCfKNq.png",
-            "url": "https://nlu.rasa.com/",
+            "description": "Machine learning tools for developers to build, improve, and deploy contextual chatbots and assistants. Powered by open source.",
+            "github": "RasaHQ/rasa",
+            "pip": "rasa",
+            "thumb": "https://i.imgur.com/TyZnpwL.png",
+            "url": "https://rasa.com/",
             "author": "Rasa",
             "author_links": {
                 "github": "RasaHQ"
@@ -735,7 +759,7 @@
             "slogan": "Use NLP to go beyond vanilla word2vec",
             "description": "sense2vec ([Trask et. al](https://arxiv.org/abs/1511.06388), 2015) is a nice twist on [word2vec](https://en.wikipedia.org/wiki/Word2vec) that lets you learn more interesting, detailed and context-sensitive word vectors. For an interactive example of the technology, see our [sense2vec demo](https://explosion.ai/demos/sense2vec) that lets you explore semantic similarities across all Reddit comments of 2015.",
             "github": "explosion/sense2vec",
-            "pip": "sense2vec==1.0.0a0",
+            "pip": "sense2vec==1.0.0a1",
             "thumb": "https://i.imgur.com/awfdhX6.jpg",
             "image": "https://explosion.ai/assets/img/demos/sense2vec.png",
             "url": "https://explosion.ai/demos/sense2vec",
@@ -747,8 +771,8 @@
                 "s2v = Sense2VecComponent('/path/to/reddit_vectors-1.1.0')",
                 "nlp.add_pipe(s2v)",
                 "",
-                "doc = nlp(u\"A sentence about natural language processing.\")",
-                "assert doc[3].text == u'natural language processing'",
+                "doc = nlp(\"A sentence about natural language processing.\")",
+                "assert doc[3].text == 'natural language processing'",
                 "freq = doc[3]._.s2v_freq",
                 "vector = doc[3]._.s2v_vec",
                 "most_similar = doc[3]._.s2v_most_similar(3)",
@@ -1105,6 +1129,20 @@
         },
         {
             "type": "education",
+            "id": "video-intro-to-nlp-episode-2",
+            "title": "Intro to NLP with spaCy",
+            "slogan": "Episode 2: Rule-based Matching",
+            "description": "In this new video series, data science instructor Vincent Warmerdam gets started with spaCy, an open-source library for Natural Language Processing in Python. His mission: building a system to automatically detect programming languages in large volumes of text. Follow his process from the first idea to a prototype all the way to data collection and training a statistical named entity recogntion model from scratch.",
+            "author": "Vincent Warmerdam",
+            "author_links": {
+                "twitter": "fishnets88",
+                "github": "koaning"
+            },
+            "youtube": "KL4-Mpgbahw",
+            "category": ["videos"]
+        },
+        {
+            "type": "education",
             "id": "video-spacy-irl-entity-linking",
             "title": "Entity Linking functionality in spaCy",
             "slogan": "spaCy IRL 2019",
@@ -1224,6 +1262,21 @@
             "category": ["podcasts"]
         },
         {
+            "type": "education",
+            "id": "practical-ai-podcast",
+            "title": "Practical AI: Modern NLP with spaCy",
+            "slogan": "December 2019",
+            "description": "\"SpaCy is awesome for NLP! It’s easy to use, has widespread adoption, is open source, and integrates the latest language models. Ines Montani and Matthew Honnibal (core developers of spaCy and co-founders of Explosion) join us to discuss the history of the project, its capabilities, and the latest trends in NLP. We also dig into the practicalities of taking NLP workflows to production. You don’t want to miss this episode!\"",
+            "thumb": "https://i.imgur.com/jn8Bcdw.png",
+            "url": "https://changelog.com/practicalai/68",
+            "author": "Daniel Whitenack & Chris Benson",
+            "author_links": {
+                "website": "https://changelog.com/practicalai",
+                "twitter": "https://twitter.com/PracticalAIFM"
+            },
+            "category": ["podcasts"]
+        },
+        {
             "id": "adam_qas",
             "title": "ADAM: Question Answering System",
             "slogan": "A question answering system that extracts answers from Wikipedia to questions posed in natural language.",
@@ -1297,7 +1350,7 @@
                 "",
                 "nlp = spacy.load('en')",
                 "nlp.add_pipe(BeneparComponent('benepar_en'))",
-                "doc = nlp(u'The time for action is now. It's never too late to do something.')",
+                "doc = nlp('The time for action is now. It's never too late to do something.')",
                 "sent = list(doc.sents)[0]",
                 "print(sent._.parse_string)",
                 "# (S (NP (NP (DT The) (NN time)) (PP (IN for) (NP (NN action)))) (VP (VBZ is) (ADVP (RB now))) (. .))",
@@ -1430,7 +1483,7 @@
             "thumb": "https://i.imgur.com/3y2uPUv.jpg",
             "code_example": [
                 "import spacy",
-                "from spacy_wordnet.wornet_annotator import WordnetAnnotator ",
+                "from spacy_wordnet.wordnet_annotator import WordnetAnnotator ",
                 "",
                 "# Load an spacy model (supported models are \"es\" and \"en\") ",
                 "nlp = spacy.load('en')",
@@ -1641,13 +1694,14 @@
             "slogan": "Information extraction from English and German texts based on predicate logic",
             "github": "msg-systems/holmes-extractor",
             "url": "https://github.com/msg-systems/holmes-extractor",
-            "description": "Holmes is a Python 3 library that supports a number of use cases involving information extraction from English and German texts, including chatbot, structural search, topic matching and supervised document classification.",
+            "description": "Holmes is a Python 3 library that supports a number of use cases involving information extraction from English and German texts, including chatbot, structural extraction, topic matching and supervised document classification. There is a [website demonstrating intelligent search based on topic matching](https://holmes-demo.xt.msg.team).",
             "pip": "holmes-extractor",
             "category": ["conversational", "standalone"],
             "tags": ["chatbots", "text-processing"],
+            "thumb": "https://raw.githubusercontent.com/msg-systems/holmes-extractor/master/docs/holmes_thumbnail.png",
             "code_example": [
                 "import holmes_extractor as holmes",
-                "holmes_manager = holmes.Manager(model='en_coref_lg')",
+                "holmes_manager = holmes.Manager(model='en_core_web_lg')",
                 "holmes_manager.register_search_phrase('A big dog chases a cat')",
                 "holmes_manager.start_chatbot_mode_console()"
             ],
@@ -1657,21 +1711,21 @@
             }
         },
         {
-            "id": "spacy-pytorch-transformers",
-            "title": "spacy-pytorch-transformers",
-            "slogan": "spaCy pipelines for pre-trained BERT, XLNet and GPT-2",
-            "description": "This package provides spaCy model pipelines that wrap [Hugging Face's `pytorch-transformers`](https://github.com/huggingface/pytorch-transformers) package, so you can use them in spaCy. The result is convenient access to state-of-the-art transformer architectures, such as BERT, GPT-2, XLNet, etc.",
-            "github": "explosion/spacy-pytorch-transformers",
-            "url": "https://explosion.ai/blog/spacy-pytorch-transformers",
-            "pip": "spacy-pytorch-transformers",
+            "id": "spacy-transformers",
+            "title": "spacy-transformers",
+            "slogan": "spaCy pipelines for pretrained BERT, XLNet and GPT-2",
+            "description": "This package provides spaCy model pipelines that wrap [Hugging Face's `transformers`](https://github.com/huggingface/transformers) package, so you can use them in spaCy. The result is convenient access to state-of-the-art transformer architectures, such as BERT, GPT-2, XLNet, etc.",
+            "github": "explosion/spacy-transformers",
+            "url": "https://explosion.ai/blog/spacy-transformers",
+            "pip": "spacy-transformers",
             "category": ["pipeline", "models", "research"],
             "code_example": [
                 "import spacy",
                 "",
-                "nlp = spacy.load(\"en_pytt_bertbaseuncased_lg\")",
+                "nlp = spacy.load(\"en_trf_bertbaseuncased_lg\")",
                 "doc = nlp(\"Apple shares rose on the news. Apple pie is delicious.\")",
                 "print(doc[0].similarity(doc[7]))",
-                "print(doc._.pytt_last_hidden_state.shape)"
+                "print(doc._.trf_last_hidden_state.shape)"
             ],
             "author": "Explosion",
             "author_links": {
@@ -1782,6 +1836,71 @@
             "author_links": {
                 "github": "microsoft"
             }
+        },
+        {
+            "id": "python-sentence-boundary-disambiguation",
+            "title": "pySBD - python Sentence Boundary Disambiguation",
+            "slogan": "Rule-based sentence boundary detection that works out-of-the-box",
+            "github": "nipunsadvilkar/pySBD",
+            "description": "pySBD is 'real-world' sentence segmenter which extracts reasonable sentences when the format and domain of the input text are unknown. It is a rules-based algorithm based on [The Golden Rules](https://s3.amazonaws.com/tm-town-nlp-resources/golden_rules.txt) - a set of tests to check accuracy of segmenter in regards to edge case scenarios developed by [TM-Town](https://www.tm-town.com/) dev team. pySBD is python port of ruby gem [Pragmatic Segmenter](https://github.com/diasks2/pragmatic_segmenter).",
+            "pip": "pysbd",
+            "category": ["scientific"],
+            "tags": ["sentence segmentation"],
+            "code_example": [
+                "from pysbd.util import PySBDFactory",
+                "",
+                "nlp = spacy.blank('en')",
+                "nlp.add_pipe(PySBDFactory(nlp))",
+                "",
+                "doc = nlp('My name is Jonas E. Smith. Please turn to p. 55.')",
+                "print(list(doc.sents))",
+                "# [My name is Jonas E. Smith., Please turn to p. 55.]"
+            ],
+            "author": "Nipun Sadvilkar",
+            "author_links": {
+                "twitter": "nipunsadvilkar",
+                "github": "nipunsadvilkar",
+                "website": "https://nipunsadvilkar.github.io"
+            }
+        },
+        {
+            "id": "cookiecutter-spacy-fastapi",
+            "title": "cookiecutter-spacy-fastapi",
+            "slogan": "Docker-based cookiecutter for easy spaCy APIs using FastAPI",
+            "description": "Docker-based cookiecutter for easy spaCy APIs using FastAPI. The default endpoints expect batch requests with a list of Records in the Azure Search Cognitive Skill format. So out of the box, this cookiecutter can be setup as a Custom Cognitive Skill. For more on Azure Search and Cognitive Skills [see this page](https://docs.microsoft.com/en-us/azure/search/cognitive-search-custom-skill-interface).",
+            "url": "https://github.com/microsoft/cookiecutter-spacy-fastapi",
+            "image": "https://raw.githubusercontent.com/microsoft/cookiecutter-spacy-fastapi/master/images/cookiecutter-docs.png",
+            "github": "microsoft/cookiecutter-spacy-fastapi",
+            "category": ["apis"],
+            "thumb": "https://avatars0.githubusercontent.com/u/6154722",
+            "author": "Microsoft",
+            "author_links": {
+                "github": "microsoft"
+            }
+        },
+        {
+            "id": "dframcy",
+            "title": "Dframcy",
+            "slogan": "Dataframe Integration with spaCy NLP",
+            "github": "yash1994/dframcy",
+            "description": "DframCy is a light-weight utility module to integrate Pandas Dataframe to spaCy's linguistic annotation and training tasks.",
+            "pip": "dframcy",
+            "category": ["pipeline", "training"],
+            "tags": ["pandas"],
+            "code_example": [
+                "import spacy",
+                "from dframcy import DframCy",
+                "",
+                "nlp = spacy.load('en_core_web_sm')",
+                "dframcy = DframCy(nlp)",
+                "doc = dframcy.nlp(u'Apple is looking at buying U.K. startup for $1 billion')",
+                "annotation_dataframe = dframcy.to_dataframe(doc)"
+            ],
+            "author": "Yash Patadia",
+            "author_links": {
+                "twitter": "PatadiaYash",
+                "github": "yash1994"
+            }
         }
     ],
 
@@ -1837,7 +1956,7 @@
                 {
                     "id": "models",
                     "title": "Models",
-                    "description": "Third-party pre-trained models for different languages and domains"
+                    "description": "Third-party pretrained models for different languages and domains"
                 }
             ]
         },
