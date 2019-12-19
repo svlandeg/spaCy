@@ -82,7 +82,7 @@ def eval_news(nlp, kb):
 
 
 def eval_wp(nlp, kb):
-    dev_wp_limit = 1000  # TODO: merge PR 4811 and define by # of articles
+    dev_wp_limit = 5000  # TODO: merge PR 4811 and define by # of articles
 
     # STEP 3 : read the dev data
     logger.info("STEP 3: reading the dev data from {}".format(training_path))
@@ -92,7 +92,7 @@ def eval_wp(nlp, kb):
         dev=True,
         limit=dev_wp_limit,
         kb=None,
-        labels_discard=[],
+        labels_discard=nlp.get_pipe("entity_linker").cfg.get("labels_discard", []),
         # sentence=False,
         # coref=True,
     )
