@@ -9,23 +9,20 @@ from spacy.gold import GoldParse
 of an entity linking model.
 """
 
-import datetime
 from pathlib import Path
 import logging
 
 import spacy
 # import neuralcoref
 
-# TODO: clean up paths
 from bin.wiki_entity_linking import wikipedia_processor
 from bin.wiki_entity_linking import TRAINING_DATA_FILE
 from bin.wiki_entity_linking.entity_linker_evaluation import measure_baselines, get_eval_results
 from spacy.kb import KnowledgeBase
 
+# TODO: clean up paths
 kb_dir = Path("C:/Users/Sofie/Documents/data/EL-data/KB/")
-# nlp_dir = Path("C:/Users/Sofie/Documents/data/EL-data/EL/nlp/")
 nlp_dir = Path("C:/Users/Sofie/Documents/data/EL-data/RUN_full/nlp/")
-
 training_path = kb_dir / TRAINING_DATA_FILE
 
 logger = logging.getLogger(__name__)
@@ -85,7 +82,7 @@ def eval_news(nlp, kb):
 
 
 def eval_wp(nlp, kb):
-    dev_wp_limit = 5000  # TODO: merge PR 4811 and define by # of articles
+    dev_wp_limit = 1000  # TODO: merge PR 4811 and define by # of articles
 
     # STEP 3 : read the dev data
     logger.info("STEP 3: reading the dev data from {}".format(training_path))
@@ -109,7 +106,7 @@ def eval_wp(nlp, kb):
     measure_performance(wp_data, kb, nlp)
 
     # STEP 5 : set coref annotations from file
-    logger.info("STEP 5: set coref annotations from file")
+    # logger.info("STEP 5: set coref annotations from file")
 
     # TODO fix this code
     # adding toy coref component to the cluster

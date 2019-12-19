@@ -1326,6 +1326,7 @@ class EntityLinker(Pipe):
         self.require_model()
         self.require_kb()
 
+        to_discard = self.cfg.get("labels_discard", [])
         entity_count = 0
         final_kb_ids = []
         final_tensors = []
@@ -1340,152 +1341,154 @@ class EntityLinker(Pipe):
             offsets_to_kb = dict()
             ner_offsets = [(ent.start_char, ent.end_char) for ent in doc.ents]
             if PRINT:
-                print("predicting doc with entities:", len(doc.ents))
+                print(i, "predicting doc with entities:", len(doc.ents))
             if len(doc) > 0:
                 # currently, the context is the same for each entity in a sentence (should be refined)
                 sentences = [sent.as_doc() for sent in doc.sents]
                 sentence_encodings = self.model(sentences)
                 xp = get_array_module(sentence_encodings)
 
-                sentence_encodings_t = [sentence_encoding.T for sentence_encoding in sentence_encodings]
-                sentence_norms = [xp.linalg.norm(sentence_encoding_t) for sentence_encoding_t in sentence_encodings_t]
+                sentence_encodings_t = [se.T for se in sentence_encodings]
+                sentence_norms = [xp.linalg.norm(se_t) for se_t in sentence_encodings_t]
                 if PRINT:
                     print(i, "found", len(sentences), "sentences")
                     print("sentence offsets:", [(s.start_char, s.end_char) for s in doc.sents])
 
                 # looping through each entity
                 for ent in doc.ents:
+                    ent_offset = (ent.start_char, ent.end_char)
                     if PRINT:
                         print()
                         print("evaluating ent", self._my_print_ent(ent))
 
-                    to_discard = self.cfg.get("labels_discard", [])
-                    if to_discard and ent.label_ in to_discard:
+                    # check whether this was processed before as part of a coref chain
+                    if ent_offset in offsets_to_kb:
+                        if PRINT:
+                            print("already seen it")
+
+                    elif to_discard and ent.label_ in to_discard:
                         # ignoring this entity - setting to NIL
+                        if PRINT:
+                            print("discarding type", ent.label_)
                         entity_count += 1
-                        final_kb_ids.append(self.NIL)
+                        offsets_to_kb[ent_offset] = self.NIL
                         # TODO: empty-valued tensor ?
                         final_tensors.append(sentence_encodings[0])
 
                     else:
-                        # check whether this was processed before as part of a coref chain
-                        if (ent.start_char, ent.end_char) in offsets_to_kb:
-                            if PRINT:
-                                print("already seen it")
+                        # fetch the other entities coreferent to this one, and resolve all at once
+                        coref_ents = self.get_coref_cluster(ent)
+                        candidates = set()
+
+                        for coref_ent in coref_ents:
+                            if not to_discard or coref_ent.label_ not in to_discard:
+                                if PRINT:
+                                    print("analysing coref ent", self._my_print_ent(coref_ent))
+                                coref_offset = (coref_ent.start_char, coref_ent.end_char)
+                                coref_cand = self.kb.get_candidates(coref_ent.text)
+                                if PRINT:
+                                    print(" - these candidates:", [cand.entity_ for cand in coref_cand])
+                                candidates.update(coref_cand)
+
+                        candidates = list(candidates)
+
+                        if not candidates:
+                            # no prediction possible for this entity
+                            for coref_ent in coref_ents:
+                                coref_offset = (coref_ent.start_char, coref_ent.end_char)
+                                # only add the KB if this offset was tagged as an entity
+                                if coref_offset in ner_offsets:
+                                    offsets_to_kb[coref_offset] = self.NIL
+                                    entity_count += 1
+                                    corefent_sent_i = self._get_sentence_index(ent, doc)
+                                    if corefent_sent_i >= 0:
+                                        final_tensors.append(sentence_encodings[corefent_sent_i])
+                                    else:
+                                        # TODO: not sure what to do here, but we need a tensor
+                                        final_tensors.append(sentence_encodings[0])
+
+                        elif len(candidates) == 1:
+                            # shortcut for efficiency reasons: take the 1 candidate
+                            entity_count += 1
+                            # TODO: thresholding
+                            offsets_to_kb[coref_offset] = candidates[0].entity_
+                            final_tensors.append(sentence_encodings[0])
+
                         else:
-                            # fetch the other entities coreferent to this one, and resolve all at once
-                            coref_ents = self.get_coref_cluster(ent)
-                            candidates = set()
+                            random.shuffle(candidates)
+                            if PRINT:
+                                print("all candidates:", [cand.entity_ for cand in candidates])
+
+
+                            # this will set all prior probabilities to 0 if they should be excluded from the model
+                            prior_probs = xp.asarray([c.prior_prob for c in candidates])
+                            if not self.cfg.get("incl_prior", True):
+                                prior_probs = xp.asarray([0.0 for c in candidates])
+                            scores = prior_probs
+                            if PRINT:
+                                print("prior probs", prior_probs)
+
+                            # add in similarity from the context
+                            if self.cfg.get("incl_context", True):
+                                entity_encodings = xp.asarray([c.entity_vector for c in candidates])
+                                entity_norm = xp.linalg.norm(entity_encodings, axis=1)
+
+                                if len(entity_encodings) != len(prior_probs):
+                                    raise RuntimeError(Errors.E147.format(method="predict", msg="vectors not of equal length"))
+
+                                scores_list = list()
+                                # cosine similarity, for each coreferent entity
+                                for coref_ent in coref_ents:
+                                    if PRINT:
+                                        print("resolving coref ent", self._my_print_ent(coref_ent))
+                                    corefent_sent_i = self._get_sentence_index(coref_ent, doc)
+                                    if PRINT:
+                                        print(" sent", corefent_sent_i)
+                                    if corefent_sent_i >= 0:
+                                        sentence_encoding_t = sentence_encodings_t[corefent_sent_i]
+                                        sentence_norm = sentence_norms[corefent_sent_i]
+                                        sims = xp.dot(entity_encodings, sentence_encoding_t) / (sentence_norm * entity_norm)
+                                        if PRINT:
+                                            print(" sims", sims)
+                                        if sims.shape != prior_probs.shape:
+                                            raise ValueError(Errors.E161)
+                                        coref_scores = prior_probs + sims - (prior_probs*sims)
+                                        if PRINT:
+                                            print(" coref_scores", coref_scores)
+                                        scores_list.append(coref_scores)
+                                if scores_list:
+                                    if PRINT:
+                                        print("scores_list", scores_list)
+                                    for s in range(len(scores)):
+                                        coref_list = [[s_list[s]] for s_list in scores_list]
+                                        if PRINT:
+                                            print(s, coref_list)
+                                        scores[s] = max(xp.asarray(coref_list))
+                                if PRINT:
+                                    print(" best scores", scores)
+
+                            # TODO: thresholding
+                            best_index = scores.argmax()
+                            best_candidate = candidates[best_index]
+                            if PRINT:
+                                print("best_index", best_index)
+                                print("best_candidate", best_candidate.entity_)
 
                             for coref_ent in coref_ents:
-                                if not to_discard or coref_ent.label_ not in to_discard:
+                                coref_offset = (coref_ent.start_char, coref_ent.end_char)
+                                # only add the KB if this offset was tagged as an entity
+                                if coref_offset in ner_offsets:
+                                    offsets_to_kb[coref_offset] = best_candidate.entity_
+                                    entity_count += 1
                                     if PRINT:
-                                        print("analysing coref ent", self._my_print_ent(coref_ent))
-                                    coref_offset = (coref_ent.start_char, coref_ent.end_char)
-                                    coref_cand = self.kb.get_candidates(coref_ent.text)
-                                    if PRINT:
-                                        print(" - these candidates:", [cand.entity_ for cand in coref_cand])
-                                    candidates.update(coref_cand)
-
-                            candidates = list(candidates)
-
-                            if not candidates:
-                                # no prediction possible for this entity
-                                for coref_ent in coref_ents:
-                                    coref_offset = (coref_ent.start_char, coref_ent.end_char)
-                                    # only add the KB if this offset was tagged as an entity
-                                    if coref_offset in ner_offsets:
-                                        offsets_to_kb[coref_offset] = self.NIL
-                                        entity_count += 1
-                                        corefent_sent_i = self._get_sentence_index(ent, doc)
-                                        if corefent_sent_i >= 0:
-                                            final_tensors.append(sentence_encodings[corefent_sent_i])
-                                        else:
-                                            # TODO: not sure what to do here, but we need a tensor
-                                            final_tensors.append(sentence_encodings[0])
-
-                            elif len(candidates) == 1:
-                                # shortcut for efficiency reasons: take the 1 candidate
-                                entity_count += 1
-                                # TODO: thresholding
-                                offsets_to_kb[coref_offset] = candidates[0].entity_
-                                final_tensors.append(sentence_encodings[0])
-
-                            else:
-                                random.shuffle(candidates)
-                                if PRINT:
-                                    print("all candidates:", [cand.entity_ for cand in candidates])
-
-
-                                # this will set all prior probabilities to 0 if they should be excluded from the model
-                                prior_probs = xp.asarray([c.prior_prob for c in candidates])
-                                if not self.cfg.get("incl_prior", True):
-                                    prior_probs = xp.asarray([0.0 for c in candidates])
-                                scores = prior_probs
-                                if PRINT:
-                                    print("prior probs", prior_probs)
-
-                                # add in similarity from the context
-                                if self.cfg.get("incl_context", True):
-                                    entity_encodings = xp.asarray([c.entity_vector for c in candidates])
-                                    entity_norm = xp.linalg.norm(entity_encodings, axis=1)
-
-                                    if len(entity_encodings) != len(prior_probs):
-                                        raise RuntimeError(Errors.E147.format(method="predict", msg="vectors not of equal length"))
-
-                                    scores_list = list()
-                                    # cosine similarity, for each coreferent entity
-                                    for coref_ent in coref_ents:
-                                        if PRINT:
-                                            print("resolving coref ent", self._my_print_ent(coref_ent))
-                                        corefent_sent_i = self._get_sentence_index(coref_ent, doc)
-                                        if PRINT:
-                                            print(" sent", corefent_sent_i)
-                                        if corefent_sent_i >= 0:
-                                            sentence_encoding_t = sentence_encodings_t[corefent_sent_i]
-                                            sentence_norm = sentence_norms[corefent_sent_i]
-                                            sims = xp.dot(entity_encodings, sentence_encoding_t) / (sentence_norm * entity_norm)
-                                            if PRINT:
-                                                print(" sims", sims)
-                                            if sims.shape != prior_probs.shape:
-                                                raise ValueError(Errors.E161)
-                                            coref_scores = prior_probs + sims - (prior_probs*sims)
-                                            if PRINT:
-                                                print(" coref_scores", coref_scores)
-                                            scores_list.append(coref_scores)
-                                    if scores_list:
-                                        if PRINT:
-                                            print("scores_list", scores_list)
-                                        for s in range(len(scores)):
-                                            coref_list = [[s_list[s]] for s_list in scores_list]
-                                            if PRINT:
-                                                print(s, coref_list)
-                                            scores[s] = max(xp.asarray(coref_list))
-                                    if PRINT:
-                                        print(" best scores", scores)
-
-                                # TODO: thresholding
-                                best_index = scores.argmax()
-                                best_candidate = candidates[best_index]
-                                if PRINT:
-                                    print("best_index", best_index)
-                                    print("best_candidate", best_candidate.entity_)
-
-                                for coref_ent in coref_ents:
-                                    coref_offset = (coref_ent.start_char, coref_ent.end_char)
-                                    # only add the KB if this offset was tagged as an entity
-                                    if coref_offset in ner_offsets:
-                                        offsets_to_kb[coref_offset] = best_candidate.entity_
-                                        entity_count += 1
-                                        if PRINT:
-                                            print("SET", best_candidate.entity_, "for", coref_offset)
-                                        corefent_sent_i = self._get_sentence_index(ent, doc)
-                                        if corefent_sent_i >= 0:
-                                            # should we add the encoding of this sentence, or of the best coref case ?
-                                            final_tensors.append(sentence_encodings[corefent_sent_i])
-                                        else:
-                                            # TODO: not sure what to do here, but we need a tensor
-                                            final_tensors.append(sentence_encodings[0])
+                                        print("SET", best_candidate.entity_, "for", coref_offset)
+                                    corefent_sent_i = self._get_sentence_index(ent, doc)
+                                    if corefent_sent_i >= 0:
+                                        # should we add the encoding of this sentence, or of the best coref case ?
+                                        final_tensors.append(sentence_encodings[corefent_sent_i])
+                                    else:
+                                        # TODO: not sure what to do here, but we need a tensor
+                                        final_tensors.append(sentence_encodings[0])
 
             if PRINT:
                 print("found kb ids:", len(offsets_to_kb))
