@@ -15,7 +15,7 @@ import logging
 
 import spacy
 
-from bin.wiki_entity_linking import wikipedia_processor
+from bin.wiki_entity_linking import wikipedia_processor, LOG_FORMAT
 from bin.wiki_entity_linking import TRAINING_DATA_FILE
 
 # TODO: clean up paths
@@ -44,9 +44,9 @@ def eval_el():
         coref = NeuralCoref(nlp.vocab, name='neuralcoref', greedyness=0.5)
         nlp.add_pipe(coref, before="entity_linker")
 
-    # eval_wp(nlp, kb, dev_articles=1000)
+    eval_wp(nlp, kb, dev_articles=50)
     # eval_news(nlp, kb)
-    eval_toy(nlp)
+    # eval_toy(nlp)
 
 
 def eval_news(nlp, kb):
@@ -103,5 +103,5 @@ def eval_wp(nlp, kb, dev_articles):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
     eval_el()
