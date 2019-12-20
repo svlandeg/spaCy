@@ -44,9 +44,9 @@ def eval_el():
         coref = NeuralCoref(nlp.vocab, name='neuralcoref', greedyness=0.5)
         nlp.add_pipe(coref, before="entity_linker")
 
-    dev_wp_limit = 5000
-    # eval_wp(nlp, kb, dev_wp_limit)
-    eval_news(nlp, kb)
+    dev_articles = 50
+    eval_wp(nlp, kb, dev_articles)
+    # eval_news(nlp, kb)
     # eval_toy(nlp)
 
 
@@ -78,18 +78,24 @@ def eval_toy(nlp):
             print(ent._.coref_cluster)
 
 
-def eval_wp(nlp, kb, dev_wp_limit):
+def eval_wp(nlp, kb, dev_articles):
     # STEP 3 : read the dev data
     logger.info("STEP 3: reading the dev data from {}".format(training_path))
-    wp_data = wikipedia_processor.read_training(
+
+    train_indices, dev_indices = wikipedia_processor.read_training_indices(training_path)
+    if dev_articles:
+        dev_indices = dev_indices[0:dev_articles]
+
+    wp_data = wikipedia_processor.read_el_docs_golds(
         nlp=nlp,
         entity_file_path=training_path,
         dev=True,
-        limit=dev_wp_limit,
-        kb=None,
+        line_ids=dev_indices,
+        kb=kb,    # TODO: should be None ?
         labels_discard=nlp.get_pipe("entity_linker").cfg.get("labels_discard", [])
     )
-    logger.info("Dev testing on {} docs".format(len(wp_data)))
+
+    logger.info("Dev testing on {} docs".format(len(dev_indices)))
 
     # STEP 4 : Measure performance on the dev data
     logger.info("STEP 4: measuring the baselines and EL performance of dev data")
