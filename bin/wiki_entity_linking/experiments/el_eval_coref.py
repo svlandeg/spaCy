@@ -39,10 +39,10 @@ def eval_el():
     if kb is None:
         logger.error("KB should not be None")
 
-    dev_wp_limit = 1000  # TODO: merge PR 4811 and define by # of articles
-    eval_wp(nlp, kb, dev_wp_limit, coref=True)
-    # eval_news(nlp, kb)
-    # eval_toy(nlp, kb)
+    dev_wp_limit = 5000  # TODO: merge PR 4811 and define by # of articles
+    # eval_wp(nlp, kb, dev_wp_limit, coref=False)
+    eval_news(nlp, kb, coref=True)
+    # eval_toy(nlp, kb, coref=False)
 
 
 def eval_news(nlp, kb, coref=False):
@@ -55,7 +55,7 @@ def eval_news(nlp, kb, coref=False):
     np = NewsParser()
     orig = True
     free_text = True
-    logger.info("STEP 3: reading the dev data, orig {} free_text".format(orig, free_text))
+    logger.info("STEP 3: reading the dev data, orig={} free_text={}".format(orig, free_text))
     news_data = np.read_news_data(nlp, orig=orig, free_text=free_text)
 
     logger.info("Dev testing on {} docs".format(len(news_data)))
@@ -66,27 +66,6 @@ def eval_news(nlp, kb, coref=False):
     # STEP 4 : Measure performance on the dev data
     logger.info("STEP 4: measuring the baselines and EL performance of dev data")
     measure_performance(news_data, kb, nlp)
-
-    # STEP 5 : set coref annotations with neuralcoref TODO
-    logger.info("STEP 5: set coref annotations with neuralcoref")
-    # neuralcoref.add_to_pipe(nlp)
-    news_data_coref = []
-    for doc, gold in news_data:
-        coref_doc = nlp(doc.text)
-        coref_doc.user_data["orig_article_id"] = doc.user_data["orig_article_id"]
-        coref_gold = GoldParse(doc=coref_doc, links=gold.links)
-        news_data_coref.extend([(coref_doc, coref_gold)])
-
-    for doc, gold in news_data_coref:
-        article_id = doc.user_data["orig_article_id"]
-        # print(" - doc", article_id, len(doc.ents), "entities")
-        for key, value in gold.links.items():
-            start, end = key
-            # print(key, doc[start:end], "->", value)
-
-    # STEP 6 : measure performance again
-    logger.info("STEP 6: measuring the baselines and EL performance of dev data + coref")
-    measure_performance(news_data_coref, kb, nlp)
 
 
 def eval_toy(nlp, kb):
