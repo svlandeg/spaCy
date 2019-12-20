@@ -1339,9 +1339,11 @@ class EntityLinker(Pipe):
 
         for i, doc in enumerate(docs):
             offsets_to_kb = dict()
+            doc_ent_count = 0
             ner_offsets = [(ent.start_char, ent.end_char) for ent in doc.ents]
             if PRINT:
                 print(i, "predicting doc with entities:", len(doc.ents))
+                print("ner_offsets", len(ner_offsets), ner_offsets)
             if len(doc) > 0:
                 # currently, the context is the same for each entity in a sentence (should be refined)
                 sentences = [sent.as_doc() for sent in doc.sents]
@@ -1356,7 +1358,10 @@ class EntityLinker(Pipe):
 
                 # looping through each entity
                 for ent in doc.ents:
+                    doc_ent_count += 1
                     ent_offset = (ent.start_char, ent.end_char)
+                    if PRINT:
+                        print("resolving", ent_offset)
                     if PRINT:
                         print()
                         print("evaluating ent", self._my_print_ent(ent))
@@ -1393,6 +1398,8 @@ class EntityLinker(Pipe):
                         candidates = list(candidates)
 
                         if not candidates:
+                            if PRINT:
+                                print("NO CANDIDATES")
                             # no prediction possible for this entity
                             for coref_ent in coref_ents:
                                 coref_offset = (coref_ent.start_char, coref_ent.end_char)
@@ -1408,16 +1415,26 @@ class EntityLinker(Pipe):
                                         final_tensors.append(sentence_encodings[0])
 
                         elif len(candidates) == 1:
+                            if PRINT:
+                                print("ONE CANDIDATE")
                             # shortcut for efficiency reasons: take the 1 candidate
-                            entity_count += 1
-                            # TODO: thresholding
-                            offsets_to_kb[coref_offset] = candidates[0].entity_
-                            final_tensors.append(sentence_encodings[0])
+                            for coref_ent in coref_ents:
+                                coref_offset = (coref_ent.start_char, coref_ent.end_char)
+                                # only add the KB if this offset was tagged as an entity
+                                if coref_offset in ner_offsets:
+                                    offsets_to_kb[coref_offset] = candidates[0].entity_
+                                    entity_count += 1
+                                    corefent_sent_i = self._get_sentence_index(ent, doc)
+                                    if corefent_sent_i >= 0:
+                                        final_tensors.append(sentence_encodings[corefent_sent_i])
+                                    else:
+                                        # TODO: not sure what to do here, but we need a tensor
+                                        final_tensors.append(sentence_encodings[0])
 
                         else:
                             random.shuffle(candidates)
                             if PRINT:
-                                print("all candidates:", [cand.entity_ for cand in candidates])
+                                print("shuffled candidates:", [cand.entity_ for cand in candidates])
 
 
                             # this will set all prior probabilities to 0 if they should be excluded from the model
@@ -1431,7 +1448,7 @@ class EntityLinker(Pipe):
                             # add in similarity from the context
                             if self.cfg.get("incl_context", True):
                                 entity_encodings = xp.asarray([c.entity_vector for c in candidates])
-                                entity_norm = xp.linalg.norm(entity_encodings, axis=1)
+                                entity_norms = xp.linalg.norm(entity_encodings, axis=1)
 
                                 if len(entity_encodings) != len(prior_probs):
                                     raise RuntimeError(Errors.E147.format(method="predict", msg="vectors not of equal length"))
@@ -1447,15 +1464,16 @@ class EntityLinker(Pipe):
                                     if corefent_sent_i >= 0:
                                         sentence_encoding_t = sentence_encodings_t[corefent_sent_i]
                                         sentence_norm = sentence_norms[corefent_sent_i]
-                                        sims = xp.dot(entity_encodings, sentence_encoding_t) / (sentence_norm * entity_norm)
+                                        sims = xp.dot(entity_encodings, sentence_encoding_t) / (sentence_norm * entity_norms)
                                         if PRINT:
                                             print(" sims", sims)
                                         if sims.shape != prior_probs.shape:
                                             raise ValueError(Errors.E161)
-                                        coref_scores = prior_probs + sims - (prior_probs*sims)
+                                        cand_scores = prior_probs + sims - (prior_probs*sims)
+                                        # cand_scores = self._combine_scores(sims, prior_probs)
                                         if PRINT:
-                                            print(" coref_scores", coref_scores)
-                                        scores_list.append(coref_scores)
+                                            print(" cand_scores", cand_scores)
+                                        scores_list.append(cand_scores)
                                 if scores_list:
                                     if PRINT:
                                         print("scores_list", scores_list)
@@ -1492,11 +1510,17 @@ class EntityLinker(Pipe):
 
             if PRINT:
                 print("found kb ids:", len(offsets_to_kb))
+                print("doc_ent_count", doc_ent_count)
+            if len(offsets_to_kb) != doc_ent_count:
+                print("DID not find:", [offset for offset in ner_offsets if offset not in offsets_to_kb.keys()])
+                raise RuntimeError(Errors.E147.format(method="predict", msg="did not resolve all entities in the doc"))
             for offset, kb_id in sorted(offsets_to_kb.items(), key=operator.itemgetter(0)):
                 final_kb_ids.append(kb_id)
 
         if PRINT:
             print("entity_count", entity_count)
+            print("final_tensors", len(final_tensors))
+            print("final_kb_ids", len(final_kb_ids))
         if not (len(final_tensors) == len(final_kb_ids) == entity_count):
             raise RuntimeError(Errors.E147.format(method="predict", msg="result variables not of equal length"))
 

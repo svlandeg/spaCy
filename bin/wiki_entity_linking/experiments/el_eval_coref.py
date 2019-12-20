@@ -1,7 +1,8 @@
 # coding: utf-8
 from __future__ import unicode_literals
 
-from bin.wiki_entity_linking.experiments.coref_comp import OfflineCorefComponent
+from neuralcoref import NeuralCoref
+
 from bin.wiki_entity_linking.experiments.prodigy_reader import NewsParser
 from spacy.gold import GoldParse
 
@@ -13,17 +14,14 @@ from pathlib import Path
 import logging
 
 import spacy
-# import neuralcoref
 
 from bin.wiki_entity_linking import wikipedia_processor
 from bin.wiki_entity_linking import TRAINING_DATA_FILE
 from bin.wiki_entity_linking.entity_linker_evaluation import measure_baselines, get_eval_results
-from spacy.kb import KnowledgeBase
 
 # TODO: clean up paths
-kb_dir = Path("C:/Users/Sofie/Documents/data/EL-data/KB/")
 nlp_dir = Path("C:/Users/Sofie/Documents/data/EL-data/RUN_full/nlp/")
-training_path = kb_dir / TRAINING_DATA_FILE
+training_path = Path("C:/Users/Sofie/Documents/data/EL-data/KB/") / TRAINING_DATA_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -32,17 +30,27 @@ def eval_el():
     # STEP 1 : load the NLP object
     logger.info("STEP 1: loading model from {}".format(nlp_dir))
     nlp = spacy.load(nlp_dir)
+    entity_linker = nlp.get_pipe("entity_linker")
+    logger.info("Entity linker cfg = {}".format(entity_linker.cfg))
 
     # STEP 2 : read the KB
-    logger.info("STEP 2: reading the KB from {} kb ".format(kb_dir))
-    kb = KnowledgeBase(vocab=nlp.vocab)
-    kb.load_bulk(kb_dir / "kb")
+    logger.info("STEP 2: reading KB")
+    kb = entity_linker.kb
+    if kb is None:
+        logger.error("KB should not be None")
 
-    eval_wp(nlp, kb)
+    dev_wp_limit = 1000  # TODO: merge PR 4811 and define by # of articles
+    eval_wp(nlp, kb, dev_wp_limit, coref=True)
     # eval_news(nlp, kb)
+    # eval_toy(nlp, kb)
 
 
-def eval_news(nlp, kb):
+def eval_news(nlp, kb, coref=False):
+    if coref:
+        logger.info("Adding coreference resolution to the pipeline")
+        coref = NeuralCoref(nlp.vocab, name='neuralcoref', greedyness=0.5)
+        nlp.add_pipe(coref, before="entity_linker")
+
     # STEP 3 : read the dev data
     np = NewsParser()
     orig = True
@@ -81,8 +89,26 @@ def eval_news(nlp, kb):
     measure_performance(news_data_coref, kb, nlp)
 
 
-def eval_wp(nlp, kb):
-    dev_wp_limit = 5000  # TODO: merge PR 4811 and define by # of articles
+def eval_toy(nlp, kb):
+    text = (
+        "The book was written by Douglas Adams. "
+        "Adams was a funny man."
+    )
+
+    coref = NeuralCoref(nlp.vocab, name='neuralcoref', greedyness=0.5)
+    nlp.add_pipe(coref, before="entity_linker")
+
+    doc = nlp(text)
+
+    for ent in doc.ents:
+        print(["ent", ent.text, ent.label, ent.kb_id_, ent._.coref_cluster])
+
+
+def eval_wp(nlp, kb, dev_wp_limit, coref=False):
+    if coref:
+        logger.info("Adding coreference resolution to the pipeline")
+        coref = NeuralCoref(nlp.vocab, name='neuralcoref', greedyness=0.5)
+        nlp.add_pipe(coref, before="entity_linker")
 
     # STEP 3 : read the dev data
     logger.info("STEP 3: reading the dev data from {}".format(training_path))
