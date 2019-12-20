@@ -1404,7 +1404,7 @@ class EntityLinker(Pipe):
                             for coref_ent in coref_ents:
                                 coref_offset = (coref_ent.start_char, coref_ent.end_char)
                                 # only add the KB if this offset was tagged as an entity
-                                if coref_offset in ner_offsets:
+                                if coref_offset in ner_offsets and coref_offset not in offsets_to_kb:
                                     offsets_to_kb[coref_offset] = self.NIL
                                     entity_count += 1
                                     corefent_sent_i = self._get_sentence_index(ent, doc)
@@ -1421,7 +1421,7 @@ class EntityLinker(Pipe):
                             for coref_ent in coref_ents:
                                 coref_offset = (coref_ent.start_char, coref_ent.end_char)
                                 # only add the KB if this offset was tagged as an entity
-                                if coref_offset in ner_offsets:
+                                if coref_offset in ner_offsets and coref_offset not in offsets_to_kb:
                                     offsets_to_kb[coref_offset] = candidates[0].entity_
                                     entity_count += 1
                                     corefent_sent_i = self._get_sentence_index(ent, doc)
@@ -1495,7 +1495,7 @@ class EntityLinker(Pipe):
                             for coref_ent in coref_ents:
                                 coref_offset = (coref_ent.start_char, coref_ent.end_char)
                                 # only add the KB if this offset was tagged as an entity
-                                if coref_offset in ner_offsets:
+                                if coref_offset in ner_offsets and coref_offset not in offsets_to_kb:
                                     offsets_to_kb[coref_offset] = best_candidate.entity_
                                     entity_count += 1
                                     if PRINT:
