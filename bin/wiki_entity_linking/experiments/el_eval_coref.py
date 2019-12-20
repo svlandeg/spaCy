@@ -1,10 +1,10 @@
 # coding: utf-8
 from __future__ import unicode_literals
 
+from bin.wiki_entity_linking.entity_linker_evaluation import measure_performance
 from neuralcoref import NeuralCoref
 
 from bin.wiki_entity_linking.experiments.prodigy_reader import NewsParser
-from spacy.gold import GoldParse
 
 """Script that evaluates the influence of coref annotations on the performance
 of an entity linking model.
@@ -17,7 +17,6 @@ import spacy
 
 from bin.wiki_entity_linking import wikipedia_processor
 from bin.wiki_entity_linking import TRAINING_DATA_FILE
-from bin.wiki_entity_linking.entity_linker_evaluation import measure_baselines, get_eval_results
 
 # TODO: clean up paths
 nlp_dir = Path("C:/Users/Sofie/Documents/data/EL-data/RUN_full/nlp/")
@@ -45,10 +44,10 @@ def eval_el():
         coref = NeuralCoref(nlp.vocab, name='neuralcoref', greedyness=0.5)
         nlp.add_pipe(coref, before="entity_linker")
 
-    dev_wp_limit = 5000  # TODO: merge PR 4811 and define by # of articles
+    dev_wp_limit = 5000
     # eval_wp(nlp, kb, dev_wp_limit)
-    # eval_news(nlp, kb)
-    eval_toy(nlp)
+    eval_news(nlp, kb)
+    # eval_toy(nlp)
 
 
 def eval_news(nlp, kb):
@@ -63,7 +62,7 @@ def eval_news(nlp, kb):
 
     # STEP 4 : Measure performance on the dev data
     logger.info("STEP 4: measuring the baselines and EL performance of dev data")
-    measure_performance(news_data, kb, nlp)
+    measure_performance(news_data, kb, nlp.get_pipe("entity_linker"))
 
 
 def eval_toy(nlp):
@@ -94,28 +93,7 @@ def eval_wp(nlp, kb, dev_wp_limit):
 
     # STEP 4 : Measure performance on the dev data
     logger.info("STEP 4: measuring the baselines and EL performance of dev data")
-    measure_performance(wp_data, kb, nlp)
-
-
-def measure_performance(data, kb, nlp):
-    baseline_accuracies, counts = measure_baselines(data, kb)
-    logger.info("Counts: {}".format({k: v for k, v in sorted(counts.items())}))
-    logger.info(baseline_accuracies.report_performance("random"))
-    logger.info(baseline_accuracies.report_performance("prior"))
-    logger.info(baseline_accuracies.report_performance("oracle"))
-
-    el_pipe = nlp.get_pipe("entity_linker")
-    # using only context
-    el_pipe.cfg["incl_context"] = True
-    el_pipe.cfg["incl_prior"] = False
-    results = get_eval_results(data, el_pipe)
-    logger.info(results.report_metrics("context only"))
-
-    # measuring combined accuracy (prior + context)
-    el_pipe.cfg["incl_context"] = True
-    el_pipe.cfg["incl_prior"] = True
-    results = get_eval_results(data, el_pipe)
-    logger.info(results.report_metrics("context and prior"))
+    measure_performance(wp_data, kb, nlp.get_pipe("entity_linker"))
 
 
 if __name__ == "__main__":
