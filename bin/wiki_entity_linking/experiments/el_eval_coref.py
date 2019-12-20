@@ -44,10 +44,9 @@ def eval_el():
         coref = NeuralCoref(nlp.vocab, name='neuralcoref', greedyness=0.5)
         nlp.add_pipe(coref, before="entity_linker")
 
-    dev_articles = 50
-    eval_wp(nlp, kb, dev_articles)
+    # eval_wp(nlp, kb, dev_articles=1000)
     # eval_news(nlp, kb)
-    # eval_toy(nlp)
+    eval_toy(nlp)
 
 
 def eval_news(nlp, kb):
@@ -62,18 +61,19 @@ def eval_news(nlp, kb):
 
     # STEP 4 : Measure performance on the dev data
     logger.info("STEP 4: measuring the baselines and EL performance of dev data")
-    measure_performance(news_data, kb, nlp.get_pipe("entity_linker"))
+    measure_performance(news_data, kb, nlp.get_pipe("entity_linker"), dev_limit=len(news_data))
 
 
 def eval_toy(nlp):
     text = (
-        "The book was written by Douglas Adams. "
-        "Adams was a funny man."
+        "The speach was given by Barack Obama. "
+        "Obama was funny. "
+        "Obama then left."
     )
     doc = nlp(text)
     for ent in doc.ents:
         print()
-        print(["ent", ent.text, ent.label, ent.kb_id_, ])
+        print(["ent", ent.text, ent.label_, ent.kb_id_, ])
         if ent.has_extension("coref_cluster"):
             print(ent._.coref_cluster)
 
@@ -99,7 +99,7 @@ def eval_wp(nlp, kb, dev_articles):
 
     # STEP 4 : Measure performance on the dev data
     logger.info("STEP 4: measuring the baselines and EL performance of dev data")
-    measure_performance(wp_data, kb, nlp.get_pipe("entity_linker"))
+    measure_performance(wp_data, kb, nlp.get_pipe("entity_linker"), dev_limit=len(dev_indices))
 
 
 if __name__ == "__main__":
