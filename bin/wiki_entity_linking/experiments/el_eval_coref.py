@@ -39,18 +39,19 @@ def eval_el():
     if kb is None:
         logger.error("KB should not be None")
 
-    dev_wp_limit = 5000  # TODO: merge PR 4811 and define by # of articles
-    # eval_wp(nlp, kb, dev_wp_limit, coref=False)
-    eval_news(nlp, kb, coref=True)
-    # eval_toy(nlp, kb, coref=False)
-
-
-def eval_news(nlp, kb, coref=False):
+    coref = True
     if coref:
         logger.info("Adding coreference resolution to the pipeline")
         coref = NeuralCoref(nlp.vocab, name='neuralcoref', greedyness=0.5)
         nlp.add_pipe(coref, before="entity_linker")
 
+    dev_wp_limit = 5000  # TODO: merge PR 4811 and define by # of articles
+    # eval_wp(nlp, kb, dev_wp_limit)
+    # eval_news(nlp, kb)
+    eval_toy(nlp)
+
+
+def eval_news(nlp, kb):
     # STEP 3 : read the dev data
     np = NewsParser()
     orig = True
@@ -59,36 +60,26 @@ def eval_news(nlp, kb, coref=False):
     news_data = np.read_news_data(nlp, orig=orig, free_text=free_text)
 
     logger.info("Dev testing on {} docs".format(len(news_data)))
-    # for doc, gold in news_data:
-        # article_id = doc.user_data["orig_article_id"]
-        # print(" - doc", article_id, len(doc.ents), "entities")
 
     # STEP 4 : Measure performance on the dev data
     logger.info("STEP 4: measuring the baselines and EL performance of dev data")
     measure_performance(news_data, kb, nlp)
 
 
-def eval_toy(nlp, kb):
+def eval_toy(nlp):
     text = (
         "The book was written by Douglas Adams. "
         "Adams was a funny man."
     )
-
-    coref = NeuralCoref(nlp.vocab, name='neuralcoref', greedyness=0.5)
-    nlp.add_pipe(coref, before="entity_linker")
-
     doc = nlp(text)
-
     for ent in doc.ents:
-        print(["ent", ent.text, ent.label, ent.kb_id_, ent._.coref_cluster])
+        print()
+        print(["ent", ent.text, ent.label, ent.kb_id_, ])
+        if ent.has_extension("coref_cluster"):
+            print(ent._.coref_cluster)
 
 
-def eval_wp(nlp, kb, dev_wp_limit, coref=False):
-    if coref:
-        logger.info("Adding coreference resolution to the pipeline")
-        coref = NeuralCoref(nlp.vocab, name='neuralcoref', greedyness=0.5)
-        nlp.add_pipe(coref, before="entity_linker")
-
+def eval_wp(nlp, kb, dev_wp_limit):
     # STEP 3 : read the dev data
     logger.info("STEP 3: reading the dev data from {}".format(training_path))
     wp_data = wikipedia_processor.read_training(
@@ -97,34 +88,13 @@ def eval_wp(nlp, kb, dev_wp_limit, coref=False):
         dev=True,
         limit=dev_wp_limit,
         kb=None,
-        labels_discard=nlp.get_pipe("entity_linker").cfg.get("labels_discard", []),
-        # sentence=False,
-        # coref=True,
+        labels_discard=nlp.get_pipe("entity_linker").cfg.get("labels_discard", [])
     )
     logger.info("Dev testing on {} docs".format(len(wp_data)))
-    # for doc, gold in wp_data:
-        # article_id = doc.user_data["orig_article_id"]
-        # print(" - doc", article_id, len(doc.ents), "entities")
 
     # STEP 4 : Measure performance on the dev data
     logger.info("STEP 4: measuring the baselines and EL performance of dev data")
     measure_performance(wp_data, kb, nlp)
-
-    # STEP 5 : set coref annotations from file
-    # logger.info("STEP 5: set coref annotations from file")
-
-    # TODO fix this code
-    # adding toy coref component to the cluster
-    # coref_comp = OfflineCorefComponent()
-    # nlp.add_pipe(coref_comp, after="ner", name="coref")
-    # coref_comp.add_coref_from_file(wp_data, coref_data_by_article)
-    # for doc, gold in wp_data:
-        # article_id = doc.user_data["orig_article_id"]
-        # print(" - doc", article_id, len(doc.ents), "entities")
-
-    # STEP 6 : measure performance again
-    # logger.info("STEP 6: measuring the baselines and EL performance of dev data + coref")
-    # measure_performance(wp_data, kb, nlp)
 
 
 def measure_performance(data, kb, nlp):
