@@ -38,15 +38,15 @@ def eval_el():
     if kb is None:
         logger.error("KB should not be None")
 
-    coref = True
+    coref = False
     if coref:
         logger.info("Adding coreference resolution to the pipeline")
         coref = NeuralCoref(nlp.vocab, name='neuralcoref', greedyness=0.5)
         nlp.add_pipe(coref, before="entity_linker")
 
+    # eval_toy(nlp)
     eval_wp(nlp, kb, dev_articles=50)
     # eval_news(nlp, kb)
-    # eval_toy(nlp)
 
 
 def eval_news(nlp, kb):
@@ -66,16 +66,11 @@ def eval_news(nlp, kb):
 
 def eval_toy(nlp):
     text = (
-        "The speach was given by Barack Obama. "
-        "Obama was funny. "
-        "Obama then left."
+        "Obama is a city in Fukui, Japan. "
     )
     doc = nlp(text)
     for ent in doc.ents:
-        print()
         print(["ent", ent.text, ent.label_, ent.kb_id_, ])
-        if ent.has_extension("coref_cluster"):
-            print(ent._.coref_cluster)
 
 
 def eval_wp(nlp, kb, dev_articles):
@@ -98,8 +93,26 @@ def eval_wp(nlp, kb, dev_articles):
     logger.info("Dev testing on {} docs".format(len(dev_indices)))
 
     # STEP 4 : Measure performance on the dev data
+    el = nlp.get_pipe("entity_linker")
     logger.info("STEP 4: measuring the baselines and EL performance of dev data")
-    measure_performance(wp_data, kb, nlp.get_pipe("entity_linker"), dev_limit=len(dev_indices))
+    measure_performance(wp_data, kb, el, baseline=True, context=False, dev_limit=len(dev_indices))
+
+    for context in [0.1, 0.3, 0.5, 0.7, 0.9]:
+        for prior in [0.1, 0.3, 0.5, 0.7, 0.9]:
+            # this data is created with a generator so needs to be recreated
+            wp_data = wikipedia_processor.read_el_docs_golds(
+                nlp=nlp,
+                entity_file_path=training_path,
+                dev=True,
+                line_ids=dev_indices,
+                kb=kb,  # TODO: should be None ?
+                labels_discard=nlp.get_pipe("entity_linker").cfg.get("labels_discard", [])
+            )
+
+            logger.info(f"context {context} / prior {prior}")
+            el.cfg["context_threshold"] = context
+            el.cfg["prior_threshold"] = prior
+            measure_performance(wp_data, kb, el, baseline=False, context=True, dev_limit=len(dev_indices))
 
 
 if __name__ == "__main__":

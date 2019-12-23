@@ -1452,24 +1452,16 @@ class EntityLinker(Pipe):
                             sims = xp.asarray([0.0 for c in candidate_ids])
                             if self.cfg.get("incl_context", True):
                                 for c_index, c_id in enumerate(candidate_ids):
-                                    if PRINT:
-                                        print("resolving c_id", c_id)
                                     for coref_ent, cand_list in candidates_per_ent.items():
                                         corefent_sent_i = self._get_sentence_index(coref_ent, doc)
                                         sentence_encoding_t = sentence_encodings_t[corefent_sent_i]
                                         sentence_norm = sentence_norms[corefent_sent_i]
-                                        if PRINT:
-                                            print("resolving with coref ent", self._my_print_ent(coref_ent))
-                                            print(" sent", corefent_sent_i)
                                         if corefent_sent_i >= 0:
                                             for cand in cand_list:
                                                 if cand.entity_ == c_id:
                                                     entity_encoding = xp.asarray([cand.entity_vector])
                                                     entity_norm = xp.linalg.norm(entity_encoding, axis=1)
                                                     sim = xp.dot(entity_encoding, sentence_encoding_t) / (sentence_norm * entity_norm)
-                                                    if PRINT:
-                                                        print(" sim", sim)
-
                                                     sims[c_index] = max(sims[c_index], sim)
 
                                 if PRINT:
@@ -1478,13 +1470,10 @@ class EntityLinker(Pipe):
                             if sims.shape != prior_probs.shape:
                                         raise ValueError(Errors.E161)
 
-                            cand_scores = prior_probs + sims - (prior_probs*sims)
-                            if PRINT:
-                                print(" cand_scores", cand_scores)
-
-                            # TODO: thresholding
-                            best_index = cand_scores.argmax()
-                            best_candidate_ID = candidate_ids[best_index]
+                            best_index = self._get_best(prior_probs, sims, PRINT)
+                            best_candidate_ID = self.NIL
+                            if best_index >= 0:
+                                best_candidate_ID = candidate_ids[best_index]
                             if PRINT:
                                 print("best_index", best_index)
                                 print("best_candidate_ID", best_candidate_ID)
@@ -1522,6 +1511,29 @@ class EntityLinker(Pipe):
             raise RuntimeError(Errors.E147.format(method="predict", msg="result variables not of equal length"))
 
         return final_kb_ids, final_tensors
+
+    def _get_best(self, prior_probs, sims, PRINT):
+        # OLD CODE: cand_scores = prior_probs + sims - (prior_probs*sims)
+
+        # first, look at the best similarity score
+        best_sim = sims.argmax()
+        sim_cutoff = self.cfg.get("context_threshold", 0.5)
+        if sims[best_sim] >= sim_cutoff:
+            if PRINT:
+                print(" best_sim at", sim_cutoff, best_sim)
+            return best_sim
+
+        # next, look at the best prior prob score
+        prior_cutoff = self.cfg.get("prior_threshold", 0.5)
+        best_prob = prior_probs.argmax()
+        if prior_probs[best_prob] >= prior_cutoff:
+            if PRINT:
+                print(" best_prob",best_prob)
+            return best_prob
+
+        # return -1 if neither of them seem satisfying
+        return -1
+
 
     def set_annotations(self, docs, kb_ids, tensors=None):
         count_ents = len([ent for doc in docs for ent in doc.ents])
