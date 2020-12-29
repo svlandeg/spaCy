@@ -1,5 +1,6 @@
 import pytest
 from thinc.api import Config, fix_random_seed
+from thinc.util import require_gpu
 
 from spacy.lang.en import English
 from spacy.pipeline.textcat import default_model_config, bow_model_config
@@ -15,6 +16,7 @@ from spacy.training import Example
 )
 def test_issue5551(textcat_config):
     """Test that after fixing the random seed, the results of the pipeline are truly identical"""
+    require_gpu()
     component = "textcat"
 
     pipe_cfg = Config().from_str(textcat_config)
@@ -25,7 +27,7 @@ def test_issue5551(textcat_config):
         text = "Once hot, form ping-pong-ball-sized balls of the mixture, each weighing roughly 25 g."
         annots = {"cats": {"Labe1": 1.0, "Label2": 0.0, "Label3": 0.0}}
         pipe = nlp.add_pipe(component, config=pipe_cfg, last=True)
-        for label in set(annots["cats"]):
+        for label in annots["cats"]:
             pipe.add_label(label)
         # Train
         nlp.initialize()
@@ -33,6 +35,8 @@ def test_issue5551(textcat_config):
         nlp.update([Example.from_dict(doc, annots)])
         # Store the result of each iteration
         result = pipe.model.predict([doc])
+        print("RESULT", i, result[0])
+        print()
         results.append(list(result[0]))
     # All results should be the same because of the fixed seed
     assert len(results) == 3
