@@ -1,10 +1,14 @@
 import pytest
+from thinc.config import Config
+
+import spacy
 from spacy.language import Language
 from spacy.lang.en import English
 from spacy.lang.de import German
 from spacy.pipeline.tok2vec import DEFAULT_TOK2VEC_MODEL
 from spacy.tokens import Doc
-from spacy.util import registry, SimpleFrozenDict, combine_score_weights
+from spacy.util import registry, SimpleFrozenDict
+from spacy.util import load_model_from_config, combine_score_weights
 from thinc.api import Model, Linear, ConfigValidationError
 from pydantic import StrictInt, StrictStr
 
@@ -196,7 +200,11 @@ def test_pipe_class_component_model_custom():
     @Language.factory(name, default_config=default_config)
     class Component:
         def __init__(
-            self, nlp: Language, model: Model, name: str, value1: StrictInt = StrictInt(10)
+            self,
+            nlp: Language,
+            model: Model,
+            name: str,
+            value1: StrictInt = StrictInt(10),
         ):
             self.nlp = nlp
             self.model = model
@@ -499,6 +507,31 @@ def test_pipe_factories_from_source_config():
     config = nlp.config["components"]["custom"]
     assert config["factory"] == name
     assert config["arg"] == "world"
+
+
+def test_from_source_override():
+    base_nlp = spacy.blank("nl")
+    ner = base_nlp.add_pipe("ner")
+    with make_tempdir() as tmp_dir:
+        base_nlp.to_disk(tmp_dir)
+        config_string = f"""
+        [nlp]
+        lang = "nl"
+        pipeline = ["ner", "textcat"]
+
+        [components]
+
+        [components.ner]
+        source = {tmp_dir}
+        incorrect_spans_key = my_key
+
+        [components.textcat]
+        factory = "textcat"
+        """
+        config = Config().from_str(config_string)
+        sourced_nlp = load_model_from_config(config, auto_fill=True)
+        ner2 = sourced_nlp.get_pipe("ner")
+        assert ner2.incorrect_spans_key == "my_key"
 
 
 class PipeFactoriesIdempotent:
