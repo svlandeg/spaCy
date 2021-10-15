@@ -534,6 +534,29 @@ def test_from_source_override():
         assert ner2.incorrect_spans_key == "my_key"
 
 
+def test_from_source_override_invalid():
+    base_nlp = spacy.blank("nl")
+    ner = base_nlp.add_pipe("ner")
+    with make_tempdir() as tmp_dir:
+        base_nlp.to_disk(tmp_dir)
+        config_string = f"""
+        [nlp]
+        lang = "nl"
+        pipeline = ["ner", "textcat"]
+
+        [components]
+
+        [components.ner]
+        source = {tmp_dir}
+        foo = bar
+
+        [components.textcat]
+        factory = "textcat"
+        """
+        with pytest.raises(ConfigValidationError):
+            config = Config().from_str(config_string)
+
+
 class PipeFactoriesIdempotent:
     def __init__(self, nlp, name):
         ...
