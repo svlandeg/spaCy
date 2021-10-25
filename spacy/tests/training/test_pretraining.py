@@ -14,7 +14,7 @@ from ...training.pretrain import pretrain
 from ...tokens import Doc, DocBin
 from ...language import DEFAULT_CONFIG_PRETRAIN_PATH, DEFAULT_CONFIG_PATH
 
-pretrain_string_listener = """
+pretrain_string_listener_tagger = """
 [nlp]
 lang = "en"
 pipeline = ["tok2vec", "tagger"]
@@ -51,7 +51,44 @@ max_epochs = 5
 max_epochs = 5
 """
 
-pretrain_string_internal = """
+pretrain_string_listener_ner = """
+[nlp]
+lang = "en"
+pipeline = ["tok2vec", "ner"]
+
+[components]
+
+[components.tok2vec]
+factory = "tok2vec"
+
+[components.tok2vec.model]
+@architectures = "spacy.HashEmbedCNN.v1"
+pretrained_vectors = null
+width = 342
+depth = 4
+window_size = 1
+embed_size = 2000
+maxout_pieces = 3
+subword_features = true
+
+[components.ner]
+factory = "ner"
+
+[components.ner.model]
+@architectures = "spacy.TransitionBasedParser.v2"
+
+[components.ner.model.tok2vec]
+@architectures = "spacy.Tok2VecListener.v1"
+width = ${components.tok2vec.model.width}
+
+[pretraining]
+max_epochs = 5
+
+[training]
+max_epochs = 5
+"""
+
+pretrain_string_internal_tagger = """
 [nlp]
 lang = "en"
 pipeline = ["tagger"]
@@ -78,6 +115,36 @@ subword_features = true
 max_epochs = 5
 
 [training]
+max_epochs = 5
+"""
+
+pretrain_string_internal_ner = """
+[nlp]
+lang = "en"
+pipeline = ["ner"]
+
+[components]
+
+[components.ner]
+factory = "ner"
+
+[components.ner.model]
+@architectures = "spacy.TransitionBasedParser.v2"
+
+[components.ner.model.tok2vec]
+@architectures = "spacy.HashEmbedCNN.v1"
+pretrained_vectors = null
+width = 342
+depth = 4
+window_size = 1
+embed_size = 2000
+maxout_pieces = 3
+subword_features = true
+
+[training]
+max_epochs = 5
+
+[pretraining]
 max_epochs = 5
 """
 
@@ -152,9 +219,9 @@ VECTOR_OBJECTIVES = [
 ]
 
 
-def test_pretraining_default():
+def test_pretraining_internal_tagger():
     """Test that pretraining defaults to a character objective"""
-    config = Config().from_str(pretrain_string_internal)
+    config = Config().from_str(pretrain_string_internal_tagger)
     nlp = util.load_model_from_config(config, auto_fill=True, validate=False)
     filled = nlp.config
     pretrain_config = util.load_config(DEFAULT_CONFIG_PRETRAIN_PATH)
@@ -165,7 +232,7 @@ def test_pretraining_default():
 @pytest.mark.parametrize("objective", CHAR_OBJECTIVES)
 def test_pretraining_tok2vec_characters(objective):
     """Test that pretraining works with the character objective"""
-    config = Config().from_str(pretrain_string_listener)
+    config = Config().from_str(pretrain_string_listener_tagger)
     config["pretraining"]["objective"] = objective
     nlp = util.load_model_from_config(config, auto_fill=True, validate=False)
     filled = nlp.config
@@ -185,7 +252,7 @@ def test_pretraining_tok2vec_characters(objective):
 @pytest.mark.parametrize("objective", VECTOR_OBJECTIVES)
 def test_pretraining_tok2vec_vectors_fail(objective):
     """Test that pretraining doesn't works with the vectors objective if there are no static vectors"""
-    config = Config().from_str(pretrain_string_listener)
+    config = Config().from_str(pretrain_string_listener_tagger)
     config["pretraining"]["objective"] = objective
     nlp = util.load_model_from_config(config, auto_fill=True, validate=False)
     filled = nlp.config
@@ -203,7 +270,7 @@ def test_pretraining_tok2vec_vectors_fail(objective):
 @pytest.mark.parametrize("objective", VECTOR_OBJECTIVES)
 def test_pretraining_tok2vec_vectors(objective):
     """Test that pretraining works with the vectors objective and static vectors defined"""
-    config = Config().from_str(pretrain_string_listener)
+    config = Config().from_str(pretrain_string_listener_tagger)
     config["pretraining"]["objective"] = objective
     nlp = util.load_model_from_config(config, auto_fill=True, validate=False)
     filled = nlp.config
@@ -218,10 +285,18 @@ def test_pretraining_tok2vec_vectors(objective):
         pretrain(filled, tmp_dir)
 
 
-@pytest.mark.parametrize("config", [pretrain_string_internal, pretrain_string_listener])
-def test_pretraining_tagger_tok2vec(config):
-    """Test pretraining of the tagger's tok2vec layer (via a listener)"""
-    config = Config().from_str(pretrain_string_listener)
+@pytest.mark.parametrize(
+    "config_str, component",
+    [
+        (pretrain_string_internal_tagger, "tagger"),
+        (pretrain_string_internal_ner, "ner"),
+        (pretrain_string_listener_tagger, "tagger"),
+        (pretrain_string_listener_ner, "ner"),
+    ],
+)
+def test_pretraining_tagger_tok2vec(config_str, component):
+    """Test pretraining of a component's tok2vec layer"""
+    config = Config().from_str(config_str)
     nlp = util.load_model_from_config(config, auto_fill=True, validate=False)
     filled = nlp.config
     pretrain_config = util.load_config(DEFAULT_CONFIG_PRETRAIN_PATH)
@@ -229,7 +304,7 @@ def test_pretraining_tagger_tok2vec(config):
     with make_tempdir() as tmp_dir:
         file_path = write_sample_jsonl(tmp_dir)
         filled["paths"]["raw_text"] = file_path
-        filled["pretraining"]["component"] = "tagger"
+        filled["pretraining"]["component"] = component
         filled["pretraining"]["layer"] = "tok2vec"
         filled = filled.interpolate()
         pretrain(filled, tmp_dir)
@@ -240,7 +315,7 @@ def test_pretraining_tagger_tok2vec(config):
 
 def test_pretraining_tagger():
     """Test pretraining of the tagger itself will throw an error (not an appropriate tok2vec layer)"""
-    config = Config().from_str(pretrain_string_internal)
+    config = Config().from_str(pretrain_string_internal_tagger)
     nlp = util.load_model_from_config(config, auto_fill=True, validate=False)
     filled = nlp.config
     pretrain_config = util.load_config(DEFAULT_CONFIG_PRETRAIN_PATH)
@@ -256,7 +331,7 @@ def test_pretraining_tagger():
 
 def test_pretraining_training():
     """Test that training can use a pretrained Tok2Vec model"""
-    config = Config().from_str(pretrain_string_internal)
+    config = Config().from_str(pretrain_string_internal_tagger)
     nlp = util.load_model_from_config(config, auto_fill=True, validate=False)
     filled = nlp.config
     pretrain_config = util.load_config(DEFAULT_CONFIG_PRETRAIN_PATH)
